@@ -1,0 +1,66 @@
+[project]
+name = "dragonfly"
+version = "0.1.0"
+description = "Research and monitoring tooling for the Dragonfly trading system"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+research = [
+    "pyarrow>=17",
+    "pandas>=2.2",
+    "numpy>=2.0",
+]
+monitoring = [
+    "textual>=0.80",
+    "rich>=13.7",
+]
+contracts = [
+    "pybind11>=2.13",
+]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dragonfly"]
+
+[tool.ruff]
+# Settings live here rather than a separate ruff.toml so there is one source of truth.
+fix = true
+line-length = 120
+indent-width = 4
+
+target-version = "py311"
+
+[tool.ruff.format]
+preview = false
+line-ending = "lf"
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+docstring-code-line-length = 110
+skip-magic-trailing-comma = false
+
+[tool.ruff.lint]
+# Ruff's defaults cover only E4, E7, E9 and F. The rule families below are
+# opted into explicitly. `I` is required for the isort settings further down
+# to take effect at all.
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.lint.isort]
+force-single-line = true
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src/dragonfly"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
