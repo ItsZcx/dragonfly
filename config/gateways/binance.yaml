@@ -1,0 +1,122 @@
+# Gateway instance configuration — Binance spot
+# Layer legend (overview.md, "The channels"): L1 = ingestion (feed handler), L2 = strategy,
+# L3 = risk (firewall), L4 = OMS (ledger), L5 = EMS (execution), L6 = observability.
+#
+# Reference: Investigation §13 (execution) and §16 (secrets), operations.md, "Reference data".
+#
+# ONE FILE PER GATEWAY PROCESS. This file describes a single venue; the Layer 5
+# binary loads exactly one of these via --config. To add a venue, copy this
+# file to config/gateways/<venue>.yaml and launch another process. See
+# config/gateways/README.md for the multi-venue deployment model.
+#
+# Consumed by Layer 5 (EMS). Endpoints and credentials only; no secrets are
+# committed (Investigation §16). Credential values are resolved from the
+# environment at startup.
+
+version: 1
+venue: binance
+# Numeric venue identity carried on order/fill/recon messages (contracts.md, "Venue identity").
+# This file is the AUTHORITY for the number — VenueId::Binance in C++ is only a
+# convenience alias for the adapters that exist, and L2/L3/L4 never switch on it.
+# Must equal the value in config/feeds/binance.yaml; the process refuses to reach
+# Ready on a mismatch. Reserved: 0 = wildcard/any venue, 1..99 not usable.
+venue_id: 100
+kind: spot
+
+rest:
+  base_url: https://api.binance.com
+
+websocket:
+  market_data_url: wss://stream.binance.com:9443/ws
+  order_url: wss://ws-api.binance.com:443/ws-api/v3
+
+# Credentials resolved from the environment. Never inline them here.
+#
+# These are the NAMES of environment variables, not the secrets. Config is
+# versioned and only says where to look; values are injected at process start,
+# so a leaked checkout cannot contain them (Investigation §16).
+#
+# On bare metal the values come from /etc/dragonfly/*.env via the systemd
+# unit's EnvironmentFile= (not committed, not in this repo). In a container
+# they come from the runtime: docker run -e, compose env_file, or k8s Secrets.
+#
+# When creating the Binance key, grant only what Layer 5 needs:
+#   - Enable Spot Trading (required for order entry)
+#   - DISABLE withdrawals. Always. This system never moves funds out, and
+#     enabling it turns an API-key leak into total loss of the account.
+#   - Restrict to this server's egress IP if the venue supports it.
+# Layer 1 (market data) uses no credentials at all: those streams are public.
+credentials:
+  api_key_env: DRAGONFLY_BINANCE_API_KEY
+  api_secret_env: DRAGONFLY_BINANCE_API_SECRET
+
+# Canonical instrument ids this gateway can serve. A gateway is bound to one
+# venue and holds that venue's listings (tick size, step size, min notional)
+# from instruments.yaml under `venues` — those rules belong to the venue, not to the
+# canonical instrument, and are applied here at the quantization boundary
+# (operations.md, "Reference data").
+instruments: [1001]
+
+# Process identity for message headers (contracts.md, "The message header"). Unique per process.
+producer_id: 5
+
+# CPU core this process is pinned to (overview.md, "More than six processes"). Must be unique across
+# running processes and listed in the kernel's isolcpus.
+core: 5
+
+# Connection behaviour.
+# jitter and fatal_status_codes are explained in config/feeds/binance.yaml; the
+# semantics are identical here, and the thundering-herd problem applies equally
+# to order sessions (a venue restarting must not receive a synchronised retry
+# spike from every gateway at once).
+reconnect:
+  initial_backoff_ms: 250
+  max_backoff_ms: 30000
+  max_attempts: 0                  # 0 = retry forever
+  jitter: full
+
+# A rejected key or an IP restriction is permanent, not transient. Abort at boot
+# rather than retry forever: a gateway that cannot authenticate must not start
+# in a half-configured state (Investigation §16).
+fatal_status_codes: [401, 403, 404, 451]
+
+# Order rate limiting AT THE VENUE, separate from Layer 3's internal limit
+# (layers.md, L3 (risk) step 1). The two exist for different reasons and both apply:
+#
+#   L3's max_orders_per_second  protects the SYSTEM from a runaway strategy. It
+#                               rejects a signal before an order exists, and the
+#                               rejection is visible to the strategy.
+#   venue_rate_limit            protects the ACCOUNT from the venue's ban. It is
+#                               the exchange's own published ceiling (Binance
+#                               bans for sustained order-rate abuse), and
+#                               exceeding it is not a rejection -- it is a
+#                               restriction that can outlast the session.
+#
+# Therefore L5 must also throttle, and the venue limit is the binding one when it
+# is lower. An order rejected here is not a risk rejection: it has already passed
+# L3 and been accepted into the ledger, so L5 backs off and retries rather than
+# discarding it, and a sustained breach is an operator alert.
+venue_rate_limit:
+  orders_per_second: 50
+  requests_per_minute: 1200
+
+# ---------------------------------------------------------------------------
+# Modelled fees — SIMULATED VENUE ONLY (contracts.md, `ExecutionReportMsg`)
+# ---------------------------------------------------------------------------
+#
+# The real Binance gateway does NOT read this block: a live venue reports the
+# fee it charged on every execution report, and contracts.md, `ExecutionReportMsg` makes that
+# reported value authoritative. Modelling it locally would produce a ledger
+# that cannot reconcile, since real fees drift from the published schedule
+# through volume tiers and token discounts.
+#
+# The simulated venue (P7) and replay (P4) have no exchange to ask, so they
+# fill `fee` from the rates below and mark the message with
+# MsgFlag::ModelledFill (contracts.md, the `flags` field) so downstream can tell the two apart.
+#
+# Units are basis points of notional. Sign convention lives in the message:
+# negative fee = maker rebate.
+#modelled_fees:
+#  maker_bps: "-1.0"     # rebate for providing liquidity
+#  taker_bps: "10.0"     # cost for taking it
+#  settlement_currency: USDT

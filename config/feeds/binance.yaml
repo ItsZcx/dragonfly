@@ -1,0 +1,99 @@
+# Feed handler configuration — Binance spot market data
+# Layer legend (overview.md, "The channels"): L1 = ingestion (feed handler), L2 = strategy,
+# L3 = risk (firewall), L4 = OMS (ledger), L5 = EMS (execution), L6 = observability.
+#
+# Reference: Investigation §14 (reference data), operations.md, "Reference data" (canonical vs venue).
+#
+# ONE FILE PER FEED HANDLER PROCESS (Layer 1), mirroring config/gateways/.
+# The Layer 1 binary loads exactly one of these via --config.
+#
+# A feed handler is per-venue for the same reasons a gateway is: fault
+# isolation, its own pinned core, and independent reconnect behaviour. See
+# config/gateways/README.md — the reasoning is identical.
+
+version: 1
+venue: binance
+# Numeric venue identity carried on order/fill/recon messages (contracts.md, "Venue identity").
+# This file is the AUTHORITY for the number — VenueId::Binance in C++ is only a
+# convenience alias for the adapters that exist, and L2/L3/L4 never switch on it.
+# Must equal the value in config/gateways/binance.yaml; the process refuses to
+# reach Ready on a mismatch (market data and orders must name the venue identically).
+# Reserved: 0 = wildcard/any venue, 1..99 not usable.
+venue_id: 100
+kind: spot
+
+# Market data endpoints. Public; no credentials required for L1.
+websocket:
+  url: wss://stream.binance.com:9443/stream
+  # Combined-stream subscription. Symbols are venue symbols, not canonical ids:
+  # resolution to a canonical id happens in this process at ingress (operations.md, "Reference data").
+  streams:
+    - btcusdt@trade
+    - btcusdt@depth@100ms
+
+# Canonical ids this handler is responsible for publishing. The feed handler
+# validates at startup that every venue symbol above resolves to one of these,
+# so a typo in a stream name fails at boot rather than producing an instrument
+# that silently never receives data.
+instruments: [1001]
+
+# Process identity for message headers (contracts.md, "The message header"). Unique per process.
+# Producer_FeedHandler = 1 is the primary feed handler. Additional venue feed
+# handlers take 200 + N from the 200..255 range (contracts.md, "The message header").
+producer_id: 1
+
+# CPU core this process is pinned to (overview.md, "More than six processes"). Must be unique and in
+# the kernel's isolcpus list.
+core: 2
+
+# Book depth to RETAIN in this handler's local book. Bounds per-instrument memory.
+#
+# This is NOT the wire cap. BookSnapshotMsg is a fixed-size message with
+# kMaxBookLevels = 64 (contracts.md, `BookSnapshotMsg`), so any value <= 64 is publishable and
+# values above 64 are not representable. The two numbers are independent: the
+# message is fixed at 64 so that every hot-path message stays fixed-size, while
+# this setting says how much depth this deployment actually keeps. 20 is the
+# starting value, not a contract.
+book_depth: 20
+
+# Reconnection. A feed handler should not give up after a transient network
+# failure, so max_attempts is 0 (retry forever). A process crash is the
+# supervisor's problem, not a socket reconnect's.
+#
+# jitter is NOT optional in practice: plain exponential backoff is
+# deterministic, so every client that failed at the same moment retries at the
+# same moment, every time. When the venue recovers it receives one synchronised
+# spike (a thundering herd) and may fall over again. `full` spreads retries
+# across the whole interval.
+#   full  : sleep random(0, backoff)          — maximum spread
+#   equal : sleep backoff/2 + random(0, ...)  — keeps a floor
+#   none  : deterministic; only for tests/replay
+reconnect:
+  initial_backoff_ms: 250
+  max_backoff_ms: 30000
+  max_attempts: 0                  # 0 = retry forever
+  jitter: full
+
+# Not every failure is transient. Retrying forever on a rejected key produces a
+# slow, silent loop that never trades. HTTP statuses here abort startup instead
+# of backing off, so a misconfigured credential fails loudly at boot
+# (Investigation §16).
+#   401 unauthorized, 403 forbidden/ip-restricted, 404 wrong endpoint,
+#   451 unavailable for legal reasons
+fatal_status_codes: [401, 403, 404, 451]
+
+# Sequence-gap handling. Binance sends update ids per stream; a gap triggers a
+# resync via a fresh REST snapshot rather than silent book drift
+# (Investigation §13).
+# `on_gap: resync` is the only value the design supports for a live feed: contracts.md, `BookSnapshotMsg`
+# makes gap recovery deterministic by requesting a fresh BookSnapshotMsg, and
+# contracts.md, "Sequence numbers across a restart", makes the gap itself detectable. `halt` exists for a venue whose feed
+# cannot be trusted to resync, and it fails closed by stopping the handler
+# rather than trading on a book with a hole in it.
+#
+# snapshot_depth must be <= kMaxBookLevels (64, contracts.md, `BookSnapshotMsg`) because the
+# snapshot travels in a fixed-size message; a larger request is rejected at
+# startup rather than silently truncated.
+gap_policy:
+  on_gap: resync          # resync | halt
+  snapshot_depth: 20

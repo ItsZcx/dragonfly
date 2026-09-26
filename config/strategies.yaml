@@ -1,0 +1,57 @@
+# Strategy configuration (Investigation §14; layers.md, L2 (strategy))
+# Layer legend (overview.md, "The channels"): L1 = ingestion (feed handler), L2 = strategy,
+# L3 = risk (firewall), L4 = OMS (ledger), L5 = EMS (execution), L6 = observability.
+#
+# Loaded by Layer 2 at startup. strategy_id is the risk-attribution key
+# (contracts.md, "The message header"); it is distinct from producer_id, which identifies the
+# emitting process.
+#
+# REGISTRATION (layers.md, L2 (strategy)). `impl` is REQUIRED and binds this entry to a
+# compiled-in factory. There is no dynamic loading: a strategy peer is a hot-path
+# process and a .so is an unbounded failure source inside it (dlopen allocates and
+# runs arbitrary static initializers, both forbidden on the hot thread, overview.md, "What is on the hot path").
+#
+# An `impl` that is not in the registry is a STARTUP FAILURE, not a warning. The
+# alternative -- skip the strategy -- produces a deployment that heartbeats, passes
+# reconciliation, and silently trades nothing.
+#
+# `params` is validated against the implementation's declared schema BEFORE the
+# factory runs, so a mistyped parameter name is a startup error rather than a
+# silently-defaulted value producing plausible signals that were never backtested.
+#
+# `enabled` is a DEPLOYMENT switch (operator-settable, keeps P&L attribution
+# history); `impl` is a BUILD-TIME binding. A disabled strategy is still validated.
+#
+# strategy_id must be unique across the fleet AND < 65536: it occupies the top
+# 16 bits of signal_id (layers.md, L2 (strategy)), so a collision silently merges two
+# strategies' attribution and corrupts the per-strategy daily-loss breaker
+# (layers.md, L3 (risk) step 8). Values above 65535 truncate to their low 16 bits and collide
+# with smaller ids while passing a uniqueness check, so the loader rejects
+# out-of-range ids as well as duplicates.
+
+version: 1
+
+strategies:
+  - strategy_id: 1
+    name: threshold_placeholder    # human label: logs and attribution only
+    impl: threshold                # REQUIRED: must match a compiled-in factory (layers.md, L2 (strategy))
+    enabled: false                 # P8 turns a real strategy on
+
+    # Canonical instrument, deliberately venue-agnostic. A strategy expresses
+    # intent against the asset; which venue(s) satisfy it is an execution
+    # decision made downstream by the EMS (layers.md, L5), using the
+    # per-venue rules in instruments.yaml. Do not add a venue field here.
+    instrument_id: 1001
+    params:
+      # Placeholder values; a real strategy defines its own schema.
+      lookback_ticks: 1000
+      entry_threshold_bps: 5
+      exit_threshold_bps: 2
+
+# Assignment of logical strategies to the process that runs them.
+# Producer 2 is the canonical single-strategy process; isolated strategy
+# processes use 100 + N (contracts.md, "The message header").
+processes:
+  - producer_id: 2
+    strategy_ids: [1]
+    core: 3                        # overview.md, "More than six processes"

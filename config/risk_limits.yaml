@@ -1,0 +1,73 @@
+# Risk limits (Investigation §12 phase 3, §14; layers.md, L3 (risk))
+# Layer legend (overview.md, "The channels"): L1 = ingestion (feed handler), L2 = strategy,
+# L3 = risk (firewall), L4 = OMS (ledger), L5 = EMS (execution), L6 = observability.
+#
+# Consumed by Layer 3 (risk firewall). Evaluated on the hot path in the strict
+# order documented in layers.md, L3 (risk): kill switch, rate limit, instrument
+# status, market-order policy, order size, price collar, open-order count,
+# position limit, daily loss. First failure wins; no check is skipped.
+#
+# CANONICAL ONLY (layers.md, L3 (risk)). Every threshold here is a property of the
+# canonical instrument or the strategy, never of a venue listing. Step 2's
+# "instrument status" is a CANONICAL suspension set pushed over `control`, not a
+# venue listing's status; step 4 checks max_order_qty only. tick_size, step_size
+# and min_notional are venue micro-structure and are enforced by Layer 5, so no
+# key in this file encodes them.
+#
+# A threshold of 0 means "this check is disabled", except kill_switch_active,
+# which is a latched bool rather than a numeric limit.
+#
+# An ABSENT key means "no constraint at this tier", which is different from 0.
+# Absent falls through to the next tier that specifies a value; 0 disables the
+# check outright. Conflating the two would make an omitted key block all trading.
+#
+# WHICH TIER EACH CHECK READS is fixed by layers.md, L3 (risk) (see its config table).
+# Summary of the load-bearing cases:
+#   max_orders_per_second  per_strategy: a global-only limit lets ONE runaway
+#                          strategy starve every other strategy in the process.
+#   max_daily_loss         per_strategy: layers.md, L2 (strategy) justifies strategy_id uniqueness
+#                          by the per-strategy breaker existing at all.
+#   size / position /      BOTH tiers, and both must pass -- a per-strategy limit
+#   open orders            larger than the instrument cap must not override it.
+#
+# Reloading these values is a config swap, not a process restart
+# (Investigation §14). Never queried from disk on the hot path.
+
+version: 1
+
+global:
+  kill_switch_active: false
+  # Process-wide ceilings. Each is the AGGREGATE constraint; the per_strategy
+  # block below sets an individual participant's share of it. The effective
+  # limit is the tighter of the two.
+  max_orders_per_second: 100        # token-bucket rate limit
+  max_daily_loss: "5000"            # circuit breaker across ALL strategies
+  max_open_orders: 50
+
+# Keyed by canonical instrument id (operations.md, "Reference data"), NOT by venue listing.
+# Limits aggregate across every venue: a 2.0 BTC cap applies to the total
+# position across Binance, Coinbase and anywhere else, so a strategy cannot
+# evade it by splitting an order across venues.
+per_instrument:
+  1001:
+    max_order_qty: "1.0"            # BTC
+    max_position_qty: "2.0"         # BTC, absolute net position
+    price_collar_bps: 50            # reject orders > 0.50% from mid
+    allow_market_orders: true
+
+# Per-strategy limits. strategy_id is the attribution key (contracts.md, "The message header"), so
+# these apply no matter which process the strategy runs in -- a strategy moving
+# to its own isolated process (100 + N) keeps the same limits.
+per_strategy:
+  1:
+    max_order_qty: "0.5"
+    max_position_qty: "1.0"
+    # REQUIRED for the rate limit to mean what layers.md, L3 (risk) says it means. Without it,
+    # one runaway strategy consumes the whole process's order budget and the
+    # other strategies in that process are starved by a limit meant to protect
+    # them.
+    max_orders_per_second: 20
+    max_open_orders: 10
+    # Per-strategy daily-loss breaker. layers.md, L2 (strategy) relies on this being per-strategy
+    # when it justifies requiring strategy_id uniqueness.
+    max_daily_loss: "1500"

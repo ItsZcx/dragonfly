@@ -1,0 +1,112 @@
+# Instrument master (Investigation §14; operations.md, "Reference data")
+# Layer legend (overview.md, "The channels"): L1 = ingestion (feed handler), L2 = strategy,
+# L3 = risk (firewall), L4 = OMS (ledger), L5 = EMS (execution), L6 = observability.
+#
+# The single source of truth mapping external venue symbols to internal
+# integer instrument IDs. Loaded once at startup, read-only thereafter.
+#
+# RELOAD POLICY (operations.md, "Reference data"). "Read-only thereafter" means there is no hot
+# reload of the quantization grid -- and that is deliberate, not an omission:
+# changing tick_size/step_size changes what an ALREADY-LIVE order means, and L1
+# (routing) and L5 (quantization) are separate processes that cannot switch in
+# the same instant. Changes are applied by a COORDINATED RESTART.
+#
+# The one exception is `status`, which is re-read on SIGHUP: halting an
+# instrument only ever reduces exposure and is exactly the action you want
+# without a restart.
+#
+# Because a skew between restarted processes would be silent and order-affecting,
+# each process computes a content hash of this file's parsed data and publishes it
+# in HeartbeatMsg.ref_data_hash. Two different hashes in one running system is a
+# ConfigSkew condition that CLOSES THE TRADING GATE -- the same fail-closed shape
+# as reconciliation. A process starting with a hash that disagrees with the fleet
+# refuses to enter Trading rather than joining as a silent outsider.
+#
+# Editing a `canonical_id` or `venue_symbol` is NEVER safe: both are identities
+# already written into live orders, positions and the audit log. Re-pointing 1001
+# at a different asset silently restates positions and P&L.
+#
+# Prices and quantities are written here as decimals for human review and
+# converted to fixed-point (SCALE = 1e9, contracts.md, "Numbers are fixed-point integers") at load time.
+#
+# ID ranges:
+#   1     .. 999    Reserved for system entities, test fixtures, routing keys.
+#   1000  .. 9999   Spot instruments        (e.g. 1001 = canonical BTC/USDT)
+#   10000 .. 19999  Perpetual futures/swaps
+#   20000 .. 29999  Options
+
+version: 1
+scale: 1000000000        # fixed-point scale (1e9)
+
+# ---------------------------------------------------------------------------
+# Two-level model: canonical instrument vs. venue-listed contract
+# ---------------------------------------------------------------------------
+#
+# A canonical instrument is the *economic* asset (BTC/USDT spot). It is what
+# Layer 2 strategies and Layer 3 risk speak in, and what position limits and
+# P&L aggregate against.
+#
+# A venue listing is one *tradable contract* for that asset on one venue. Each
+# venue has its own tick size, step size, min notional and status. These are
+# NOT properties of the asset — Binance BTCUSDT and Coinbase BTC-USD have
+# genuinely different increments and minimums, and a bank's XBTUSD differs
+# again.
+#
+# Therefore micro-structure rules live under instruments[].venues, never at
+# the top level.
+#
+# Layer 1 (ingestion) and Layer 5 (EMS) are venue-aware and read venues:.
+# Layer 2 (strategy) and Layer 3 (risk) are venue-agnostic and read only the
+# canonical id plus global risk budgets.
+
+instruments:
+  - canonical_id: 1001
+    base: BTC
+    quote: USDT
+    kind: spot
+    settlement_currency: USDT
+
+    # Position/P&L aggregation unit for this asset. Risk limits in
+    # risk_limits.yaml are expressed against the canonical book, so exposure
+    # accumulated on any venue counts toward the same limit.
+    venues:
+      binance:
+        venue_symbol: BTCUSDT
+        tick_size: "0.01"        # minimum price increment (quote units)
+        step_size: "0.00001"     # minimum quantity increment (base units)
+        min_notional: "5"        # minimum order value in quote currency
+        contract_multiplier: "1" # base units per contract (1 for spot)
+        status: active           # active | halted | auction | closed
+
+      # Planned second venue (adapter not implemented). Note that tick_size,
+      # step_size and min_notional differ from Binance — this is exactly why
+      # they cannot live on the canonical instrument.
+      # coinbase:
+      #   venue_symbol: BTC-USD
+      #   tick_size: "0.01"
+      #   step_size: "0.000001"
+      #   min_notional: "10"
+      #   contract_multiplier: "1"
+      #   status: active
+
+# ---------------------------------------------------------------------------
+# Startup validation invariants
+# ---------------------------------------------------------------------------
+#
+# The loader MUST reject the config at startup if any of these fail:
+#
+#   1. canonical_id values are unique and outside the reserved 1..999 range.
+#   2. (venue, venue_symbol) is unique across all instruments. Two canonical
+#      instruments claiming the same venue symbol would make Layer 1's
+#      routing table ambiguous — a silent mis-routing of orders or fills.
+#   3. Every listed venue has a matching config/gateways/<venue>.yaml file.
+#   4. tick_size and step_size are positive and exactly representable at the
+#      configured scale (checked by parsing the decimal string, never by
+#      reading a binary float).
+#   5. min_notional, where present, is >= one tick_size * one step_size.
+#   6. status is one of the four legal values.
+#
+# Rationale for (2): the venue symbol -> canonical id map is built by inverting
+# instruments[].venues. Ambiguity there is the highest-consequence class of
+# bug in a multi-venue system, because it routes real orders to the wrong
+# asset rather than failing loudly.
