@@ -1,0 +1,9 @@
+{
+  "name": "dragonfly",
+  "version-string": "0.1.0",
+  "builtin-baseline": "9cd6dd9009d2a9b27dd943aa0ca2ca6cd61a4089",
+  "dependencies": [
+    "gtest",
+    "benchmark"
+  ]
+}

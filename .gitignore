@@ -1,0 +1,42 @@
+# Build output
+build/
+cmake-build-*/
+CMakeUserPresets.json
+compile_commands.json
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+
+# C++ artefacts
+*.o
+*.a
+*.so
+*.dylib
+*.gch
+*.pch
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# vcpkg. Two different directories, and only one of them is scratch:
+#   .vcpkg/           the bootstrap checkout (README.md step 1). Never committed.
+#   vcpkg_installed/  manifest-mode dependencies vcpkg builds at configure time.
+#                     Hundreds of MB of compiled libs and headers, regenerable from
+#                     vcpkg.json + the pinned builtin-baseline, and never a source
+#                     artifact. Its lock/cache files are per-machine, not per-project.
+.vcpkg/
+vcpkg_installed/
+
+# Note: uv.lock IS committed. A lockfile pins resolved
+# versions, which is the opposite of the scratch directories above.
+# Note: data/ contents are ignored by per-directory .gitignore files.
+
+notes.md
