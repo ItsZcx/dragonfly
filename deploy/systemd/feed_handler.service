@@ -1,0 +1,80 @@
+# Feed handler unit (Layer 1). Template — the binary does not exist until P4.
+#
+# Enforces the deployment rules from Investigation §16. Copy to
+# /etc/systemd/system/ and adjust paths.
+
+[Unit]
+Description=Dragonfly Layer 1 — feed handler
+After=network-online.target
+Wants=network-online.target
+
+# Crash-loop backoff. Both keys belong in [Unit], not
+# [Service] — systemd silently ignores StartLimitIntervalSec in [Service].
+StartLimitBurst=5
+StartLimitIntervalSec=60s
+
+[Service]
+Type=simple
+User=dragonfly
+Group=dragonfly
+WorkingDirectory=/opt/dragonfly
+
+# The feed handler is pinned to core 2, matching `core: 2` in
+# config/feeds/binance.yaml. Cores 1-6 must be in the kernel's isolcpus list
+# for this to be effective.
+CPUAffinity=2
+
+# Restart policy: always, with crash-loop backoff.
+Restart=always
+RestartSec=1s
+
+# Identity and configuration.
+# One unit per feed handler process; --config names ONE venue file, exactly as
+# the gateway units name one gateway file (see config/gateways/README.md).
+Environment=DRAGONFLY_CONFIG_DIR=/opt/dragonfly/config
+
+# Credentials are injected from /etc/dragonfly/, which is NOT in this repo and
+# NOT in the Docker image. Two different reasons:
+#
+#   - /opt/dragonfly is application code copied from a build artifact. /etc is
+#     machine-local config that exists only on this host. Keeping them apart
+#     means a redeploy cannot clobber credentials, and a leaked build artifact
+#     cannot contain them. Config is versioned; data is not.
+#   - The Dockerfile is the CI/replay path, not the production path, and
+#     containers receive secrets from the runtime (docker run -e, k8s
+#     Secrets), not from a host file. See deploy/Dockerfile.
+#
+# Create it on the host (values come from config/gateways/binance.yaml, which
+# stores the variable NAMES, not the secrets):
+#     sudo install -d -m 0750 -o root -g dragonfly /etc/dragonfly
+#     sudo install -m 0640 -o root -g dragonfly /dev/null /etc/dragonfly/feed_handler.env
+#     # then add: DRAGONFLY_BINANCE_API_KEY=... and ..._API_SECRET=...
+# systemd syntax, not shell: no spaces around `=`, no `export`, no expansion.
+#
+# The leading `-` means "do not fail if this file is absent". Layer 1 reads
+# public market data and needs no credentials, so it must start on a host where
+# the file was never created. The cost: a typo in the path makes the file
+# silently not load, so verify with `systemctl show dragonfly-feed -p EnvironmentFile`.
+# A Layer 5 gateway unit must omit the `-` instead, so missing credentials
+# abort startup rather than letting it place unauthenticated orders
+# (Investigation §16).
+EnvironmentFile=-/etc/dragonfly/feed_handler.env
+
+ExecStart=/opt/dragonfly/build/apps/feed_handler/feed_handler \
+    --config /opt/dragonfly/config/feeds/binance.yaml
+
+# Logging is asynchronous through Quill; stdout carries only startup and
+# fatal errors.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dragonfly-feed
+
+# Hardening.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/dragonfly
+
+[Install]
+WantedBy=multi-user.target
