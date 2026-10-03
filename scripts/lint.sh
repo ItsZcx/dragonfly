@@ -6,10 +6,14 @@
 # clang-tidy needs compile_commands.json, which scripts/build.sh writes as a
 # symlink at the repository root. Configure a build before running this.
 #
-# clang-tidy comes from Homebrew LLVM on macOS, which is not on PATH by default.
-# Add it to your shell profile:
+# clang-tidy comes from Homebrew LLVM on macOS, which is keg-only and so not on
+# PATH by default. Add it to your shell profile:
 #
-#   export PATH="$(brew --prefix llvm)/bin:$PATH"
+#   export PATH="$(brew --prefix llvm@22)/bin:$PATH"
+#
+# The version is pinned. clang-tidy enables different checks between releases,
+# so a local tool and the CI tool on different versions report different
+# findings.
 #
 # tests/p0_smoke.cpp is excluded. It is P0 toolchain scaffolding that reports
 # findings its own purpose makes unavoidable, and operations.md retires it once
@@ -23,8 +27,19 @@ cd "$REPO_ROOT"
 
 if ! command -v clang-tidy >/dev/null 2>&1; then
     echo "error: clang-tidy not found on PATH" >&2
-    echo "       macOS: brew install llvm, then add \$(brew --prefix llvm)/bin to PATH" >&2
-    echo "       Debian and Ubuntu: apt-get install clang-tidy" >&2
+    echo "       macOS: brew install llvm@22, then add \$(brew --prefix llvm@22)/bin to PATH" >&2
+    echo "       Debian and Ubuntu: see .github/workflows/ci.yml for the pinned version" >&2
+    exit 1
+fi
+
+# The clang-tidy in PATH may be a different release than the one CI uses, and
+# the releases enable different checks. Fail on a mismatch rather than report
+# findings CI will not reproduce.
+WANT_MAJOR=22
+GOT_MAJOR="$(clang-tidy --version | head -1 | grep -oE '[0-9]+' | head -1)"
+if [[ "$GOT_MAJOR" != "$WANT_MAJOR" ]]; then
+    echo "error: clang-tidy $WANT_MAJOR required, found $(clang-tidy --version | head -1)" >&2
+    echo "       macOS: brew install llvm@$WANT_MAJOR, then add \$(brew --prefix llvm@$WANT_MAJOR)/bin to PATH" >&2
     exit 1
 fi
 

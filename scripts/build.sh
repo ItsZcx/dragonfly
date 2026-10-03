@@ -54,6 +54,29 @@ fi
 
 cd "$REPO_ROOT"
 
+# One Clang for the build, the formatter, and the linter. On macOS that is
+# Homebrew LLVM 22, which is keg-only and so not on PATH unless the shell
+# profile adds it. CI installs the matching version from apt.llvm.org.
+#
+# The version is pinned rather than taken from PATH because clang-format and
+# clang-tidy change their output between releases, and a formatter that
+# disagrees with CI fails the build on formatting alone.
+#
+# CMake reads CXX on the first configure of a build directory. Changing it needs
+# a fresh directory, or -DCMAKE_CXX_COMPILER on an existing one.
+if [[ -z "${CXX:-}" ]]; then
+    if [[ "$(uname -s)" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then
+        LLVM_BIN="$(brew --prefix llvm@22)/bin"
+        if [[ -x "$LLVM_BIN/clang++" ]]; then
+            export CXX="$LLVM_BIN/clang++"
+        fi
+    fi
+fi
+
+if [[ -n "${CXX:-}" ]]; then
+    echo "==> compiler: $CXX ($("$CXX" --version | head -1))"
+fi
+
 cmake --preset "$PRESET"
 cmake --build --preset "$PRESET"
 

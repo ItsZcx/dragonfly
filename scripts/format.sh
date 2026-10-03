@@ -36,8 +36,19 @@ esac
 
 if ! command -v clang-format >/dev/null 2>&1; then
     echo "error: clang-format not found on PATH" >&2
-    echo "       macOS: it ships with the Xcode command line tools" >&2
-    echo "       Debian and Ubuntu: apt-get install clang-format" >&2
+    echo "       macOS: brew install llvm@22, then add \$(brew --prefix llvm@22)/bin to PATH" >&2
+    echo "       Debian and Ubuntu: see .github/workflows/ci.yml for the pinned version" >&2
+    exit 1
+fi
+
+# The clang-format in PATH may be a different release than the one CI uses, and
+# the releases disagree about how to format some constructs. Fail on a mismatch
+# rather than reformat the tree to a style CI will reject.
+WANT_MAJOR=22
+GOT_MAJOR="$(clang-format --version | grep -oE '[0-9]+' | head -1)"
+if [[ "$GOT_MAJOR" != "$WANT_MAJOR" ]]; then
+    echo "error: clang-format $WANT_MAJOR required, found $(clang-format --version)" >&2
+    echo "       macOS: brew install llvm@$WANT_MAJOR, then add \$(brew --prefix llvm@$WANT_MAJOR)/bin to PATH" >&2
     exit 1
 fi
 
