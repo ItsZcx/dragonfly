@@ -7,12 +7,12 @@
 namespace df
 {
 
-inline constexpr std::int64_t SCALE = 1'000'000'000;
+inline constexpr std::int64_t kScale = 1'000'000'000;
 
-// (a * b) / SCALE, computed at 128 bits so the product cannot wrap.
+// (a * b) / kScale, computed at 128 bits so the product cannot wrap.
 //
-// Both operands are scaled by SCALE, so their product is scaled twice. Dividing
-// by SCALE puts it back. A raw int64_t product overflows above $9.22 at a
+// Both operands are scaled by kScale, so their product is scaled twice. Dividing
+// by kScale puts it back. A raw int64_t product overflows above $9.22 at a
 // quantity of 1.0: 1.0 BTC x $100,000 is 1e23 against an int64_t ceiling of
 // 9.22e18. The wrapped result looks like a plausible number. That is why the
 // widening is a rule instead of a runtime check.
@@ -35,11 +35,10 @@ inline constexpr std::int64_t SCALE = 1'000'000'000;
 // instead of MulDiv(a, 1), so the two situations cannot be confused.
 constexpr std::int64_t MulDiv(std::int64_t a, std::int64_t b)
 {
-    const __int128 wide = (static_cast<__int128>(a) * b) / SCALE;
+    const __int128 kWide = (static_cast<__int128>(a) * b) / kScale;
 
-    assert(wide >= std::numeric_limits<std::int64_t>::min() &&
-           wide <= std::numeric_limits<std::int64_t>::max());
-    return static_cast<std::int64_t>(wide);
+    assert(kWide >= std::numeric_limits<std::int64_t>::min() && kWide <= std::numeric_limits<std::int64_t>::max());
+    return static_cast<std::int64_t>(kWide);
 }
 
 }  // namespace df

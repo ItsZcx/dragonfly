@@ -157,7 +157,7 @@ is normal traffic. It is logged, the resync follows, and it is not treated as an
 
 ### Numbers are fixed-point integers
 
-Prices and quantities are signed 64-bit integers scaled by `SCALE = 1_000_000_000` (1e9).
+Prices and quantities are signed 64-bit integers scaled by `kScale = 1_000_000_000` (1e9).
 
 ```
 $105.50      →  105_500_000_000
@@ -170,10 +170,10 @@ Binary floating point cannot represent decimal fractions exactly, so a system th
 **A product of two scaled values must widen to a 128-bit intermediate before dividing.**
 
 ```
-notional = MulDiv(qty, price)      // (qty × price) / SCALE, in __int128, then narrowed
+notional = MulDiv(qty, price)      // (qty × price) / kScale, in __int128, then narrowed
 ```
 
-Both operands are scaled, so their product is scaled twice. Dividing by `SCALE` puts it back.
+Both operands are scaled, so their product is scaled twice. Dividing by `kScale` puts it back.
 Passing `1` as the divisor skips that step, and the result overflows `int64_t` for almost every
 real trade. The boundary is narrow:
 
