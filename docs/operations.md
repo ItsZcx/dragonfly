@@ -46,8 +46,7 @@ separate problems. See [Install the host tools](#install-the-host-tools).
 | Tool            | macOS                                    | Debian and Ubuntu                   |
 | --------------- | ---------------------------------------- | ----------------------------------- |
 | `pkg-config`    | `brew install pkg-config`                | `apt-get install pkg-config`        |
-| `clang-tidy`    | `brew install llvm`                      | `apt-get install clang-tidy`        |
-| `clang-format`  | ships with the Xcode command line tools  | `apt-get install clang-format`      |
+| `llvm@22`       | `brew install llvm@22`                   | see `.github/workflows/ci.yml`      |
 
 First, fetch and bootstrap vcpkg. This step is needed once, and it is safe to re-run:
 
@@ -138,7 +137,7 @@ The script exits non-zero on any finding, so it works as a check. A clean run pr
 line and `no findings`:
 
 ```
-==> linting 1 translation units (clang-tidy 23.1.2)
+==> linting 1 translation units (clang-tidy 22.1.8)
 ==> no findings
 ```
 
@@ -147,11 +146,18 @@ Headers are checked through the include graph rather than as separate arguments,
 guess a compile command, which fails on system headers. The checks applied to headers come from
 `HeaderFilterRegex` in `.clang-tidy`.
 
-On macOS, `clang-tidy` comes from Homebrew LLVM, which is not on `PATH` by default:
+On macOS, `clang-tidy` comes from Homebrew LLVM 22, which is keg-only and so not on `PATH` by
+default:
 
 ```bash
-export PATH="$(brew --prefix llvm)/bin:$PATH"
+export PATH="$(brew --prefix llvm@22)/bin:$PATH"
 ```
+
+The version is pinned in both scripts and in CI. clang-format and clang-tidy change their output
+between releases, so a local tool and the CI tool on different versions disagree: clang-format 18
+and 21 put a short function's brace on its own line, and 22 and 23 keep it on the same line.
+The scripts reject a mismatched version rather than reformat the tree to a style CI will not
+accept.
 
 `tests/p0_smoke.cpp` is excluded. It is P0 toolchain scaffolding whose findings its own purpose
 makes unavoidable, and P0's obligations move to real tests as the phases land.
