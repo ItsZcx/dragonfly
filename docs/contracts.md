@@ -170,7 +170,7 @@ Binary floating point cannot represent decimal fractions exactly, so a system th
 **A product of two scaled values must widen to a 128-bit intermediate before dividing.**
 
 ```
-notional = MulDiv(qty, price, SCALE)      // (qty × price) / SCALE, in __int128, then narrowed
+notional = MulDiv(qty, price)      // (qty × price) / SCALE, in __int128, then narrowed
 ```
 
 Both operands are scaled, so their product is scaled twice. Dividing by `SCALE` puts it back.
@@ -191,6 +191,13 @@ rule rather than a runtime check. Every site that produces a scaled quantity fro
 The one case that widens without dividing is a numerator that is itself divided by a scaled
 value, which is the weighted-average cost basis. That case uses an explicit widening cast rather
 than `MulDiv(..., 1)`, so the two situations cannot be confused.
+
+`MulDiv` does **not** check for overflow. Its precondition is that the 128-bit result fits in
+`int64_t`, and that precondition is enforced at the boundary rather than in the arithmetic: L3
+bounds quantity at its check 4, and the price collar at its check 5 bounds price, so a notional
+large enough to overflow cannot be admitted. `MulDiv` carries an `assert` that fires in a debug
+build and is compiled out under `NDEBUG`, which makes it a development tripwire rather than
+protection. See `decisions.md`, "Money is fixed-point", for why the check lives at the boundary.
 
 ### Natural alignment, no packing
 
