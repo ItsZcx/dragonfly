@@ -4,6 +4,10 @@ cmake-build-*/
 CMakeUserPresets.json
 compile_commands.json
 
+# vcpkg writes this into the source tree during a system-information probe at
+# configure time. Never a source artifact.
+__cmake_systeminformation/
+
 # Editor / IDE
 .vscode/
 .idea/
