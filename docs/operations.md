@@ -9,6 +9,11 @@ is built and why.
 ## Contents
 
 - [Build and run](#build-and-run)
+  - [Install the host tools](#install-the-host-tools)
+  - [Choose a preset](#choose-a-preset)
+  - [Where `compile_commands.json` points](#where-compile_commandsjson-points)
+  - [Format the sources](#format-the-sources)
+  - [Lint the sources](#lint-the-sources)
 - [Configuration](#configuration)
   - [Reference data: config/instruments.yaml](#reference-data-configinstrumentsyaml)
   - [Risk limits: config/risk_limits.yaml](#risk-limits-configrisk_limitsyaml)
@@ -23,47 +28,133 @@ is built and why.
 
 The build uses Clang, CMake, Ninja, vcpkg in manifest mode, and `pkg-config`.
 
+The presets do not set `CXX`, so a local build uses whatever `c++` resolves to. On macOS that is
+Apple Clang. CI sets `CXX=clang++` so both environments build with Clang.
+
+The two compilers implement the same warning flag differently, so a construct that builds under
+Clang can fail under GCC. `-Wpedantic` reports `__int128` on GCC and not on Clang, and `-Werror`
+makes that fatal. GCC is not a supported compiler here.
+
 `pkg-config` is a prerequisite, not an optional extra: vcpkg's `arm64-osx` triplet runs
 `vcpkg_fixup_pkgconfig` after building a port, and that step invokes the `pkg-config` program.
 Without it, a dependency fails to install with `Could not find pkg-config`, and the CMake errors
 that follow (no Ninja, no compiler) are consequences of configuring aborting early rather than
-separate problems. On macOS install it with `brew install pkg-config`. On Debian and Ubuntu it is
-the `pkg-config` package, which `deploy/Dockerfile` already installs.
+separate problems. See [Install the host tools](#install-the-host-tools).
+
+### Install the host tools
+
+| Tool            | macOS                                    | Debian and Ubuntu                   |
+| --------------- | ---------------------------------------- | ----------------------------------- |
+| `pkg-config`    | `brew install pkg-config`                | `apt-get install pkg-config`        |
+| `clang-tidy`    | `brew install llvm`                      | `apt-get install clang-tidy`        |
+| `clang-format`  | ships with the Xcode command line tools  | `apt-get install clang-format`      |
 
 First, fetch and bootstrap vcpkg. This step is needed once, and it is safe to re-run:
 
 ```bash
 ./scripts/bootstrap.sh
-export VCPKG_ROOT="$PWD/.vcpkg"
 ```
 
-Then configure and build:
+vcpkg always installs to `<repo>/.vcpkg`. The path is not configurable, so a build cannot pick up
+another vcpkg from elsewhere on the machine.
+
+Then configure and build one preset. A preset is required, and there is no default:
 
 ```bash
-./scripts/build.sh            # Debug, RelWithDebInfo, or Release; defaults to RelWithDebInfo
+./scripts/build.sh dev
 ```
 
-Run the tests:
+Run the tests for that preset:
 
 ```bash
-./scripts/test.sh
+./scripts/test.sh dev
 ```
 
-The scripts are thin wrappers. To configure by hand instead, set `VCPKG_ROOT` and run CMake
-directly:
+### Choose a preset
+
+Each preset configures its own build directory, so all four can exist at once.
+
+| Preset    | Build type       | Sanitizers                        | Build directory |
+| --------- | ---------------- | --------------------------------- | --------------- |
+| `dev`     | `RelWithDebInfo` | none                              | `build/dev`     |
+| `release` | `Release`        | none                              | `build/release` |
+| `debug`   | `Debug`          | `address,undefined`               | `build/debug`   |
+| `tsan`    | `Debug`          | `thread`                          | `build/tsan`    |
+
+`debug` and `tsan` build `Debug`, so no `NDEBUG` is defined and every `assert` stays live. The
+other two define `NDEBUG`, which compiles asserts out.
+
+AddressSanitizer and ThreadSanitizer cannot share one build. Both need their own shadow memory,
+and the compiler rejects the combination, which is why `debug` and `tsan` are separate presets.
+
+Run `./scripts/build.sh` with no argument to list the presets.
+
+### Where `compile_commands.json` points
+
+`build.sh` creates a `compile_commands.json` symlink at the repository root. It points at the
+`dev` or `release` build most recently configured, so clangd and clang-tidy use the flags of a
+normal build. The `debug` and `tsan` presets leave the symlink alone.
+
+To configure by hand instead, use a preset directly:
 
 ```bash
-cmake -B build -G Ninja \
-  -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
-cmake --build build
-ctest --test-dir build
+cmake --preset dev
+cmake --build --preset dev
+ctest --preset dev
 ```
 
-If you skip the bootstrap step, the first CMake invocation fails, because the toolchain file it
-names does not exist yet.
+If you skip the bootstrap step, the first configure fails, because the toolchain file it names
+does not exist yet.
 
-A fourth script, `scripts/replay.sh`, is a placeholder. It prints the command it will run and
-exits with an error. The replay harness it drives does not exist until P4.
+`scripts/replay.sh` is a placeholder. It prints the command it will run and exits with an error.
+The replay harness it drives does not exist until P4.
+
+### Format the sources
+
+`scripts/format.sh` runs `clang-format` over every `.cpp` and `.hpp` under `contracts/`, `core/`,
+`apps/`, `tests/`, and `bench/`. It rewrites the files in place:
+
+```bash
+./scripts/format.sh
+```
+
+Pass `--check` to report files that need formatting without changing them. CI runs this form:
+
+```bash
+./scripts/format.sh --check
+```
+
+### Lint the sources
+
+`scripts/lint.sh` runs `clang-tidy` over every translation unit, using the
+`compile_commands.json` symlink that `build.sh` maintains. Build a preset first:
+
+```bash
+./scripts/build.sh dev
+./scripts/lint.sh
+```
+
+The script exits non-zero on any finding, so it works as a check. A clean run prints one status
+line and `no findings`:
+
+```
+==> linting 1 translation units (clang-tidy 23.1.2)
+==> no findings
+```
+
+Headers are checked through the include graph rather than as separate arguments, because
+`compile_commands.json` holds only `.cpp` entries. Passing a header directly makes `clang-tidy`
+guess a compile command, which fails on system headers. The checks applied to headers come from
+`HeaderFilterRegex` in `.clang-tidy`.
+
+On macOS, `clang-tidy` comes from Homebrew LLVM, which is not on `PATH` by default:
+
+```bash
+export PATH="$(brew --prefix llvm)/bin:$PATH"
+```
+
+`tests/p0_smoke.cpp` is excluded. It is P0 toolchain scaffolding whose findings its own purpose
+makes unavoidable, and P0's obligations move to real tests as the phases land.
 
 ---
 

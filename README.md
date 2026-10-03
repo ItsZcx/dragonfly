@@ -41,12 +41,12 @@ specified in `docs/contracts.md` but not yet implemented. That work is P1. The b
 
 | Concern      | Choice                           |
 | ------------ | -------------------------------- |
-| C++ compiler | Clang                            |
+| C++ compiler | Clang (Apple Clang locally)      |
 | Standard     | C++20                            |
-| Meta-build   | CMake                            |
+| Meta-build   | CMake, driven by presets         |
 | Build tool   | Ninja                            |
 | C++ packages | vcpkg, manifest mode             |
-| Host tool    | `pkg-config`, required by vcpkg  |
+| Host tools   | `pkg-config`, `clang-tidy`, `clang-format` |
 | Python       | 3.11 or later, managed with `uv` |
 | Testing      | GoogleTest                       |
 | Benchmarking | Google Benchmark                 |
