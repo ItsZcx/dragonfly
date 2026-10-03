@@ -851,7 +851,6 @@ enum class VenueId : uint32_t {
     // 1 to 99 are reserved. A stale config or a truncated read must not resolve
     // to a live venue.
     Binance = 100,  // convenience alias. The authority is config/gateways/binance.yaml
-    Coinbase = 101, // convenience alias. The authority is config/gateways/coinbase.yaml
 };
 ```
 

@@ -1,4 +1,15 @@
 ---
+# Enum widths are pinned by the wire format, not by the largest enumerator.
+# docs/contracts.md fixes VenueId at uint32_t to match the venue_id field, and
+# the enum classes in "Shared vocabulary" each name their underlying type for
+# the same reason. Narrowing one to the smallest type that fits its current
+# values would change a wire layout to save bytes nobody is spending, and the
+# next enumerator added could silently change it again.
+#
+# This comment is above `Checks:` rather than inside it on purpose. A folded
+# scalar joins its lines with spaces and does not treat a `#` as a comment once
+# the scalar has started, so an inline comment here would be parsed as part of
+# the preceding check name and silently drop that check.
 Checks: >
   -*,
   bugprone-*,
@@ -7,6 +18,7 @@ Checks: >
   cppcoreguidelines-*,
   readability-*,
   -modernize-use-trailing-return-type,
+  -performance-enum-size,
   -readability-magic-numbers,
   -cppcoreguidelines-avoid-magic-numbers,
   -cppcoreguidelines-pro-bounds-pointer-arithmetic,
