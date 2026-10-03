@@ -146,9 +146,7 @@ enum class OrderRecordState : std::uint8_t
 };
 
 constexpr bool IsTerminal(OrderRecordState s)
-{
-    return s >= OrderRecordState::Filled;
-}
+{ return s >= OrderRecordState::Filled; }
 
 // Mirrors the reconciliation messages (contracts.md, "Reconciliation"). These exist so that a
 // field reordering, a widened type, or an accidentally added member fails the
@@ -226,9 +224,7 @@ struct LedgerAdjustmentMsg
 // ---- Toolchain --------------------------------------------------------------
 
 TEST(P0Smoke, ToolchainRunsTests)
-{
-    EXPECT_TRUE(true);
-}
+{ EXPECT_TRUE(true); }
 
 TEST(P0Smoke, Cxx20IsActive)
 {
@@ -722,7 +718,7 @@ TEST(P0Smoke, RiskLimitsConfigCanExpressThePipeline)
 
     // Step 4 is CANONICAL-ONLY: max_order_qty and nothing else. tick_size, step_size
     // and min_notional are venue micro-structure, enforced by L5 (layers.md, L3 (risk)). This also
-    // removes a real bug: the old check was MulDiv(qty, price, SCALE) >= min_notional,
+    // removes a real bug: the old check was MulDiv(qty, price) >= min_notional,
     // and a MARKET order has price == 0, so every market order that passed step 3 was
     // then rejected at step 4 with OrderSizeTooLarge.
     constexpr bool kL3ChecksStepSizeOrMinNotional = false;

@@ -21,10 +21,10 @@ endif()
 
 # ---- Dependencies (vcpkg manifest mode) -------------------------------------
 #
-# Resolved through the vcpkg toolchain. Run scripts/bootstrap.sh first and pass
-# -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake".
-# Missing dependencies are reported at the point a target needs them, so a
-# fresh clone can still configure and inspect the tree.
+# Resolved through the vcpkg toolchain, which the presets in CMakePresets.json
+# point at <repo>/.vcpkg. Run scripts/bootstrap.sh first. Missing dependencies
+# are reported at the point a target needs them, so a fresh clone can still
+# configure and inspect the tree.
 
 # Platform threading. Required, and not optional: every layer runs a pinned
 # event loop. Defines Threads::Threads, which adds -pthread.
@@ -52,9 +52,8 @@ if(NOT DF_HAVE_GTEST OR NOT DF_HAVE_BENCHMARK)
         message(STATUS "  - benchmark")
     endif()
     message(STATUS "")
-    message(STATUS "Run ./scripts/bootstrap.sh, then:")
-    message(STATUS "  cmake -B build -G Ninja \\")
-    message(STATUS "    -DCMAKE_TOOLCHAIN_FILE=\$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake")
+    message(STATUS "Run ./scripts/bootstrap.sh, then ./scripts/build.sh <preset>.")
+    message(STATUS "Available presets: dev, release, debug, tsan.")
     message(STATUS "")
 endif()
 
