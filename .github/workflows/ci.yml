@@ -8,6 +8,11 @@ on:
 env:
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
   CMAKE_BUILD_PARALLEL_LEVEL: 4
+  # One LLVM release for the compiler, the formatter, and the linter. clang-format
+  # and clang-tidy change their output between releases, so a local tool and a CI
+  # tool on different versions disagree about formatting and findings. Ubuntu
+  # 24.04 ships clang-format 18, which is too old to match the pinned version.
+  LLVM_VERSION: 22
 
 jobs:
   build-and-test:
@@ -26,10 +31,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Clang and build tools
+      - name: Install LLVM ${{ env.LLVM_VERSION }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang ninja-build pkg-config
+          wget -qO llvm.sh https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh ${{ env.LLVM_VERSION }}
+          sudo apt-get install -y \
+            clang-${{ env.LLVM_VERSION }} \
+            clang-tools-${{ env.LLVM_VERSION }} \
+            clang-format-${{ env.LLVM_VERSION }} \
+            clang-tidy-${{ env.LLVM_VERSION }} \
+            ninja-build \
+            pkg-config
+
+      # The versioned binaries are clang++-22, clang-format-22, and clang-tidy-22.
+      # Link them under the unversioned names so the scripts and the presets find
+      # them without special cases.
+      - name: Put LLVM on PATH
+        run: |
+          sudo ln -sf /usr/bin/clang++-${{ env.LLVM_VERSION }}         /usr/local/bin/clang++
+          sudo ln -sf /usr/bin/clang-${{ env.LLVM_VERSION }}           /usr/local/bin/clang
+          sudo ln -sf /usr/bin/clang-format-${{ env.LLVM_VERSION }}    /usr/local/bin/clang-format
+          sudo ln -sf /usr/bin/clang-tidy-${{ env.LLVM_VERSION }}      /usr/local/bin/clang-tidy
+          echo "clang++      $(clang++ --version | head -1)"
+          echo "clang-format $(clang-format --version)"
+          echo "clang-tidy   $(clang-tidy --version | head -1)"
 
       - name: Enable GitHub Actions vcpkg binary cache
         uses: actions/github-script@v7
@@ -65,10 +91,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Clang tooling
+      - name: Install LLVM ${{ env.LLVM_VERSION }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang clang-format clang-tidy ninja-build pkg-config
+          wget -qO llvm.sh https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh ${{ env.LLVM_VERSION }}
+          sudo apt-get install -y \
+            clang-${{ env.LLVM_VERSION }} \
+            clang-tools-${{ env.LLVM_VERSION }} \
+            clang-format-${{ env.LLVM_VERSION }} \
+            clang-tidy-${{ env.LLVM_VERSION }} \
+            ninja-build \
+            pkg-config
+
+      - name: Put LLVM on PATH
+        run: |
+          sudo ln -sf /usr/bin/clang++-${{ env.LLVM_VERSION }}         /usr/local/bin/clang++
+          sudo ln -sf /usr/bin/clang-${{ env.LLVM_VERSION }}           /usr/local/bin/clang
+          sudo ln -sf /usr/bin/clang-format-${{ env.LLVM_VERSION }}    /usr/local/bin/clang-format
+          sudo ln -sf /usr/bin/clang-tidy-${{ env.LLVM_VERSION }}      /usr/local/bin/clang-tidy
+          echo "clang++      $(clang++ --version | head -1)"
+          echo "clang-format $(clang-format --version)"
+          echo "clang-tidy   $(clang-tidy --version | head -1)"
 
       - name: Cache vcpkg
         uses: actions/cache@v4
