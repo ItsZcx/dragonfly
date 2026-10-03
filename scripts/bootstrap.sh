@@ -8,7 +8,7 @@ VCPKG_ROOT="${VCPKG_ROOT:-$REPO_ROOT/.vcpkg}"
 
 if [[ ! -d "$VCPKG_ROOT/.git" ]]; then
     echo "==> cloning vcpkg into $VCPKG_ROOT"
-    git clone --depth 1 https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+    git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
 fi
 
 if [[ ! -x "$VCPKG_ROOT/vcpkg" ]]; then
