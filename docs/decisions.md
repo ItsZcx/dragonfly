@@ -67,6 +67,23 @@ backtest. The cost is that every multiplication must be widened. A bare `qty × 
 `int64_t` above $9.22 per unit, and the wrapped result is still a plausible-looking number, so the
 rule has to be followed rather than checked.
 
+**Overflow is prevented at the boundary, not handled in the arithmetic.** `MulDiv` narrows a
+128-bit result back to `int64_t`, and does not check whether it fits. The precondition is enforced
+upstream: L3 rejects an order larger than `max_order_qty` at its check 4, and the price collar at
+its check 5 bounds price, so no admissible pair of operands can overflow. With quantity capped at
+1.0, the price would need nineteen digits to overflow the result. The residual dependency is that
+mid is sane, which is L1's job.
+
+Three alternatives were rejected. Saturating to `INT64_MAX` produces a wrong number that still
+looks like a number, which is the exact failure the rule above exists to prevent. A runtime check
+on every call puts a branch on the path L4 takes for every fill, to guard a case the boundary
+already excludes. Widening the return type to `__int128` moves the problem to every call site.
+
+`MulDiv` therefore carries an `assert` that fires in a debug build and is compiled out under
+`NDEBUG`. It is a development tripwire that catches a mistake in the boundary check, not
+protection: in `Release` and `RelWithDebInfo` the narrowing cast is unguarded, and a violation is
+undefined behaviour. The debug build is the one that runs the tripwire, so it is worth running.
+
 See `contracts.md`, "Numbers are fixed-point integers".
 
 ## The core is venue-agnostic, and venue code lives at the edges
@@ -315,6 +332,38 @@ leg rather than per canonical position. The cost is extra ledger state, which mu
 against the canonical aggregate so it does not become a second source of truth for exposure.
 
 See `layers.md`, L4 and L5.
+
+## Tests mirror the source tree, and the kind is a namespace
+
+**Problem.** A test tree can be organized by layer, by kind of test, or by the source it
+covers. Organizing by layer alone leaves no obvious home for `contracts/`, which is not a layer.
+Organizing by kind alone makes a test's owner ambiguous once two components both have, say, a
+fixed-point test. Either way, a test whose owner is unclear is a test nobody updates when the
+code under it changes.
+
+**Decision.** A test lives under the path of the source it tests, beneath one of two kind
+namespaces:
+
+```
+tests/<kind>/<source path>/...
+```
+
+`unit` and `integration` name a kind of test, never a component, so they appear in a path but
+never in a target name or a gtest suite name. A target is named for its component:
+`core/types` becomes `df_core_types_tests`. Each component gets one executable, so a test binary
+links only what it needs. Every directory level carries its own `CMakeLists.txt`, mirroring
+`core/`.
+
+**Consequence.** A test's owner is readable from its path, and a component can be added by
+touching one file in one place rather than editing a central list that tracks the whole nested
+path. The costs are real and accepted: intermediate directory levels exist only to descend, and
+a single component's tests are no longer contiguous with its neighbours', so the whole suite
+must be found by walking the tree rather than read in one place.
+
+`tests/p0_smoke.cpp` is the one exception. It proves the toolchain before any real code exists,
+so it belongs to no component and stays at the test root.
+
+See `tests/CMakeLists.txt`, which states this rule and is its single source of truth.
 
 ## The system runs on one box
 
