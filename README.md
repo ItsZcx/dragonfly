@@ -46,6 +46,7 @@ specified in `docs/contracts.md` but not yet implemented. That work is P1. The b
 | Meta-build   | CMake                            |
 | Build tool   | Ninja                            |
 | C++ packages | vcpkg, manifest mode             |
+| Host tool    | `pkg-config`, required by vcpkg  |
 | Python       | 3.11 or later, managed with `uv` |
 | Testing      | GoogleTest                       |
 | Benchmarking | Google Benchmark                 |

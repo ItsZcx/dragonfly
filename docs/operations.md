@@ -21,7 +21,14 @@ is built and why.
 
 ## Build and run
 
-The build uses Clang, CMake, Ninja, and vcpkg in manifest mode.
+The build uses Clang, CMake, Ninja, vcpkg in manifest mode, and `pkg-config`.
+
+`pkg-config` is a prerequisite, not an optional extra: vcpkg's `arm64-osx` triplet runs
+`vcpkg_fixup_pkgconfig` after building a port, and that step invokes the `pkg-config` program.
+Without it, a dependency fails to install with `Could not find pkg-config`, and the CMake errors
+that follow (no Ninja, no compiler) are consequences of configuring aborting early rather than
+separate problems. On macOS install it with `brew install pkg-config`. On Debian and Ubuntu it is
+the `pkg-config` package, which `deploy/Dockerfile` already installs.
 
 First, fetch and bootstrap vcpkg. This step is needed once, and it is safe to re-run:
 
