@@ -7,7 +7,7 @@
 namespace df::msg
 {
 
-// More info in docs/contracts.md
+// The message type codes. docs/contracts.md, "Field by field" is the reference.
 enum class MsgType : std::uint32_t
 {
     None = 0,
@@ -50,20 +50,16 @@ enum class MsgType : std::uint32_t
 
 inline constexpr std::uint8_t kMsgFlagModelledFill = 1 << 0;
 
-// No constructor, deliberately, for any POD, refere to issue's 3 comments.
+// Every field is specified in docs/contracts.md, "The message header".
+// `MsgHeader m{}` value-initializes the object and zeroes the padding. See docs/contracts.md, "Every message.
 struct MsgHeader
 {
     std::uint32_t msg_type;
-    // Related to the process knowing what type of message it is first before decoding verything and wasting time in a possible message not directed at them.
-    std::uint32_t msg_len;      // size of msg in bytes
-    std::uint32_t producer_id;  // process who emitted it
+    std::uint32_t msg_len;
+    std::uint32_t producer_id;
     std::uint8_t  flags;
-    // prevenance bits. bitmask of facts. eg: bit 0 -> ModelledFill, meaning the fee on this execution is not real and doesn't come from ours -> necessary for backtesting realistically with modelled fees.
-
-    // 3 bites offest so ts_ns starts at 16
-
-    std::uint64_t ts_ns;    // producer's MONOTONIC timestamp (our clock)
-    std::uint64_t seq_num;  // per producer msg counter so we can check if we missed msgs and resync
+    std::uint64_t ts_ns;
+    std::uint64_t seq_num;
 };
 
 static_assert(sizeof(MsgHeader) == 32, "MsgHeader is 32 bytes (docs/contracts.md)");
@@ -75,5 +71,7 @@ static_assert(16 == offsetof(MsgHeader, ts_ns));
 static_assert(24 == offsetof(MsgHeader, seq_num));
 static_assert(std::is_trivially_copyable_v<MsgHeader>);
 static_assert(std::is_standard_layout_v<MsgHeader>);
+static_assert(std::is_trivially_default_constructible_v<MsgHeader>,
+              "keep MsgHeader an aggregate: T{} must zero padding (docs/contracts.md)");
 
 }  // namespace df::msg
