@@ -135,7 +135,7 @@ sequence-gap detection ambiguous, which is the failure the field exists to preve
 | Id or range   | Process                                        |
 | ------------- | ---------------------------------------------- |
 | 1             | feed handler, primary venue                    |
-| 2             | strategy, canonical single-strategy process    |
+| 2             | strategy, the canonical strategy process       |
 | 3             | risk engine                                    |
 | 4             | OMS                                            |
 | 5             | EMS, primary venue gateway                     |
@@ -147,6 +147,11 @@ sequence-gap detection ambiguous, which is the failure the field exists to preve
 | 200 to 255    | additional feed handlers, one per venue        |
 | 256 to 299    | additional gateways, one per venue             |
 | 300 and above | reserved                                       |
+
+Id 2 is one process, not one per strategy. It hosts every strategy in `config/strategies.yaml`
+unless that entry is given a process of its own, so the process emits for several strategies while
+its `producer_id` stays 2. `strategy_id` is what distinguishes them. A strategy that needs its own
+crash domain and pinned core takes `100 + N` from the range above instead.
 
 Feed handlers and gateways take separate ranges because they are different layers with
 independent crash domains. Sharing one range would let a venue's feed handler and its gateway
