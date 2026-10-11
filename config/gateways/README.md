@@ -157,6 +157,6 @@ shared `config/fees/` table:
 - It mirrors the existing rule that venue micro-structure lives in the venue
   listing, never on the canonical instrument (operations.md, "Reference data").
 
-A fill whose fee came from a model is marked with `MsgFlag::ModelledFill`
+A fill whose fee came from a model is marked with `kMsgFlagModelledFill`
 (contracts.md, the `flags` field), so a backtest's costs can never be mistaken for venue truth
 downstream.

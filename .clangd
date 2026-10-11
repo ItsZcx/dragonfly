@@ -1,0 +1,17 @@
+# Pin clangd to one compile database.
+#
+# scripts/build.sh repoints the root compile_commands.json symlink at whichever
+# preset was built most recently, and only for dev and release. Both define
+# NDEBUG. Under NDEBUG the preprocessor replaces assert(expr) with ((void)0), so
+# the expression never reaches the parser and clangd cannot see code that lives
+# only inside an assert. It cannot type-check that expression, and it treats the
+# includes that expression uses as unused.
+#
+# Naming the database here stops clangd following the symlink, so the flags stop
+# changing when another preset is built. build/debug is the strictest build
+# without a thread sanitizer: asserts are on, so clangd sees what the compiler
+# sees.
+#
+# Requires build/debug to be configured: ./scripts/build.sh debug
+CompileFlags:
+  CompilationDatabase: build/debug

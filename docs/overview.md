@@ -68,7 +68,8 @@ A single-venue deployment runs roughly six processes. A two-venue deployment run
 venue adds processes. It does not add layers.
 
 The core processes are one feed handler per venue, one strategy process, the risk engine, the OMS,
-one gateway per venue, and the monitor.
+one gateway per venue, and the monitor. That strategy process is one process running every
+configured strategy, not one process per strategy.
 
 Three more processes appear as later phases need them. The **telemetry process** summarizes bus
 messages for the monitor and arrives with it. The **audit recorder** writes the durable binary log

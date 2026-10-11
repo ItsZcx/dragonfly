@@ -42,7 +42,7 @@ using df::MulDiv;
 constexpr std::int64_t Fixed(std::int64_t whole, std::int64_t nano = 0)
 {
     const std::int64_t kMagnitude = whole < 0 ? -whole : whole;
-    const std::int64_t kFraction = nano < 0 ? -nano : nano;
+    const std::int64_t kFraction  = nano < 0 ? -nano : nano;
 
     const std::int64_t kValue = (kMagnitude * kScale) + kFraction;
 
@@ -88,7 +88,7 @@ TEST(CoreTypesFixed, TheLiteralHelperHandlesSigns)
 
 TEST(CoreTypesFixed, NotionalOfOneUnitAtOneHundredThousandIsExact)
 {
-    const std::int64_t kQty = Fixed(1);
+    const std::int64_t kQty   = Fixed(1);
     const std::int64_t kPrice = Fixed(100'000);
 
     // $100,000, as a scaled value.
@@ -101,7 +101,7 @@ TEST(CoreTypesFixed, WideningIsWhatMakesThatCaseWork)
     // expression at compile time and diagnoses the overflow as
     // -Winteger-overflow, which -Werror makes fatal. The runtime behaviour is
     // the one worth pinning.
-    std::int64_t qty = Fixed(1);
+    std::int64_t qty   = Fixed(1);
     std::int64_t price = Fixed(100'000);
 
     const std::int64_t kRaw = qty * price;
@@ -119,9 +119,9 @@ TEST(CoreTypesFixed, WideningIsWhatMakesThatCaseWork)
 // of clipped by an int64_t. The product is 1e23 against a ceiling of 9.22e18.
 TEST(CoreTypesFixed, TheRawProductOverflowsByFourOrdersOfMagnitude)
 {
-    constexpr std::int64_t kQty = Fixed(1);
+    constexpr std::int64_t kQty   = Fixed(1);
     constexpr std::int64_t kPrice = Fixed(100'000);
-    const __int128 kRaw = static_cast<__int128>(kQty) * kPrice;
+    const __int128         kRaw   = static_cast<__int128>(kQty) * kPrice;
 
     EXPECT_GT(kRaw, static_cast<__int128>(std::numeric_limits<std::int64_t>::max()));
 }
@@ -134,7 +134,7 @@ TEST(CoreTypesFixed, TheRawProductOverflowsByFourOrdersOfMagnitude)
 
 TEST(CoreTypesFixed, RawProductAtTheDocumentedBoundary)
 {
-    constexpr std::int64_t kQty = Fixed(1);
+    constexpr std::int64_t kQty   = Fixed(1);
     constexpr std::int64_t kPrice = Fixed(9, 220'000'000);  // $9.22
 
     const __int128 kRaw = static_cast<__int128>(kQty) * kPrice;
@@ -148,8 +148,8 @@ TEST(CoreTypesFixed, RawProductAtTheDocumentedBoundary)
 // ceiling to $922, because the quantity is 100 times smaller.
 TEST(CoreTypesFixed, RawProductBoundaryScalesWithQuantity)
 {
-    constexpr std::int64_t kQty = Fixed(0, 10'000'000);  // 0.01
-    constexpr std::int64_t kPrice = Fixed(922);          // $922
+    constexpr std::int64_t kQty   = Fixed(0, 10'000'000);  // 0.01
+    constexpr std::int64_t kPrice = Fixed(922);            // $922
 
     const __int128 kRaw = static_cast<__int128>(kQty) * kPrice;
 
@@ -165,7 +165,7 @@ TEST(CoreTypesFixed, RawProductBoundaryScalesWithQuantity)
 
 TEST(CoreTypesFixed, ASellIsTheNegationOfABuy)
 {
-    const std::int64_t kQty = Fixed(1);
+    const std::int64_t kQty   = Fixed(1);
     const std::int64_t kPrice = Fixed(100'000);
 
     EXPECT_EQ(MulDiv(-kQty, kPrice), -MulDiv(kQty, kPrice));
@@ -174,7 +174,7 @@ TEST(CoreTypesFixed, ASellIsTheNegationOfABuy)
 
 TEST(CoreTypesFixed, BothOperandsNegativeIsPositive)
 {
-    const std::int64_t kQty = Fixed(-1);
+    const std::int64_t kQty   = Fixed(-1);
     const std::int64_t kPrice = Fixed(-100'000);
 
     EXPECT_EQ(MulDiv(kQty, kPrice), Fixed(100'000));
@@ -182,7 +182,7 @@ TEST(CoreTypesFixed, BothOperandsNegativeIsPositive)
 
 TEST(CoreTypesFixed, TheNegativeBoundaryDoesNotWrapSilently)
 {
-    std::int64_t qty = Fixed(1);
+    std::int64_t qty   = Fixed(1);
     std::int64_t price = Fixed(100'000);
 
     const __int128 kRaw = static_cast<__int128>(-qty) * price;

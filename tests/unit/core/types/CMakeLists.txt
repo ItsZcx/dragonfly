@@ -5,7 +5,9 @@
 # See tests/CMakeLists.txt.
 
 if(DF_HAVE_GTEST)
-    add_executable(df_core_types_tests fixed_test.cpp)
+    add_executable(df_core_types_tests
+        fixed_test.cpp
+        ids_test.cpp)
     target_link_libraries(df_core_types_tests PRIVATE df::types GTest::gtest_main)
 
     target_compile_options(df_core_types_tests PRIVATE -Wall -Wextra -Werror -Wpedantic)

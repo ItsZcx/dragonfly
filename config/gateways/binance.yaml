@@ -112,7 +112,7 @@ venue_rate_limit:
 #
 # The simulated venue (P7) and replay (P4) have no exchange to ask, so they
 # fill `fee` from the rates below and mark the message with
-# MsgFlag::ModelledFill (contracts.md, the `flags` field) so downstream can tell the two apart.
+# kMsgFlagModelledFill (contracts.md, the `flags` field) so downstream can tell the two apart.
 #
 # Units are basis points of notional. Sign convention lives in the message:
 # negative fee = maker rebate.
