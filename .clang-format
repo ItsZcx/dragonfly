@@ -5,9 +5,23 @@ DisableFormat: false
 AccessModifierOffset: -4
 AlignAfterOpenBracket: Align
 AlignArrayOfStructures: Left
-AlignConsecutiveAssignments: None
+# Align the `=` signs of consecutive assignments into a column. PadOperators makes
+# the operator itself the aligned token rather than the operands. AlignCompound is
+# off so `+=` and friends stay tight instead of dragging the `=` block rightwards.
+AlignConsecutiveAssignments:
+    Enabled: true
+    AcrossEmptyLines: false
+    AcrossComments: false
+    AlignCompound: false
+    PadOperators: true
 AlignConsecutiveBitFields: None
-AlignConsecutiveDeclarations: None
+# Aligns the type column of consecutive declarations, so a struct or class body
+# reads as two columns: types on the left, `=` on the right. Applied to member and
+# local declarations, and to the return types of consecutive function declarations.
+AlignConsecutiveDeclarations:
+    Enabled: true
+    AcrossEmptyLines: false
+    AcrossComments: false
 AlignConsecutiveMacros: Consecutive
 
 AlignEscapedNewlines: Right

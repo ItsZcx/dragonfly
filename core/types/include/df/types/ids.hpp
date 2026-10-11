@@ -6,6 +6,31 @@
 namespace df
 {
 
+inline constexpr std::uint32_t kProducerFeedHandler = 1;
+inline constexpr std::uint32_t kProducerStrategy    = 2;
+inline constexpr std::uint32_t kProducerRisk        = 3;
+inline constexpr std::uint32_t kProducerOms         = 4;
+inline constexpr std::uint32_t kProducerEms         = 5;
+inline constexpr std::uint32_t kProducerMonitor     = 6;
+inline constexpr std::uint32_t kProducerTelemetry   = 7;
+inline constexpr std::uint32_t kProducerReplay      = 8;
+inline constexpr std::uint32_t kProducerRecorder    = 9;
+
+// Ranges, so a per-venue process can derive its id without coordinating.
+//   strategy instances  100 + N, N in 0..99
+//   ...
+inline constexpr std::uint32_t kProducerStrategyBase  = 100;
+inline constexpr std::uint32_t kProducerStrategyCount = 100;
+inline constexpr std::uint32_t kProducerFeedBase      = 200;
+inline constexpr std::uint32_t kProducerFeedCount     = 56;
+inline constexpr std::uint32_t kProducerGatewayBase   = 256;
+inline constexpr std::uint32_t kProducerGatewayCount  = 44;
+inline constexpr std::uint32_t kProducerReservedBase  = 300;
+
+//////////////////////////////
+/// Strong Types & Helpers ///
+//////////////////////////////
+
 // The ceiling on a strategy_id. It occupies the top 16 bits of a signal_id, so
 // a value above this would truncate and collide with another strategy's ids.
 // See docs/operations.md, "Strategies: config/strategies.yaml", and
@@ -61,7 +86,7 @@ struct ClientOrderId
 // constants are conveniences for the adapters that exist, and L2, L3, and L4
 // must never switch on them. A venue whose adapter does not exist yet takes the
 // next free number and no C++ changes.
-enum class VenueId : uint32_t
+enum class VenueId : std::uint32_t
 {
     // no preference: whichever gateway receives the order claims it
     Any = 0,
@@ -76,6 +101,7 @@ struct ExchangeOrderId
 {
     std::uint64_t value{};
 };
+
 struct ReconId
 {
     std::uint64_t value{};

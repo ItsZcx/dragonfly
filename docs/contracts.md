@@ -63,6 +63,61 @@ so on.
 **`msg_type`** identifies which message type in this document the message is. The value decides
 how the body is read, so it is the first thing a consumer checks.
 
+The set holds nineteen codes, one for each message type in this document, and a code is permanent.
+The header has no version field and the audit log stores messages verbatim, so a code that is
+renamed or reused reinterprets an old log.
+
+The codes are decimal blocks of ten, one block per channel. The channel is the axis because it
+decides who receives the message. A block starts at `1`, so no live code is zero. The rest of a
+block stays free for the next body on that channel.
+
+| Code | Message                  | Channel       |
+| ---- | ------------------------ | ------------- |
+| 11   | `TradeMsg`               | `md`          |
+| 12   | `QuoteMsg`               | `md`          |
+| 13   | `BookDeltaMsg`           | `md`          |
+| 14   | `BookSnapshotMsg`        | `md`          |
+| 21   | `AlphaSignalMsg`         | `signals`     |
+| 31   | `RiskRejectMsg`          | `risk_events` |
+| 41   | `NewOrderMsg`            | `orders`      |
+| 42   | `CancelOrderMsg`         | `orders`      |
+| 43   | `ReplaceOrderMsg`        | `orders`      |
+| 51   | `ExecutionReportMsg`     | `fills`       |
+| 61   | `HeartbeatMsg`           | `control`     |
+| 62   | `KillSwitchMsg`          | `control`     |
+| 63   | `BookSnapshotRequestMsg` | `control`     |
+| 71   | `ReconRequestMsg`        | `recon`       |
+| 72   | `ReconResultMsg`         | `recon`       |
+| 73   | `ReconVerdictMsg`        | `recon`       |
+| 81   | `OrderAbandonedMsg`      | `ledger`      |
+| 82   | `PositionAdoptedMsg`     | `ledger`      |
+| 83   | `BasisAdoptedMsg`        | `ledger`      |
+
+Eight blocks are in use, `10` to `89`. Codes `0` to `9` and every code from `90` up are unused,
+and stay available for a new message. A code that already names a message never gets another one,
+because the log stores messages verbatim and an old log would then decode as the wrong type.
+
+The blocks and the families are two different groupings. The message set below has seven families.
+The blocks number eight, because `RiskRejectMsg` travels on `risk_events` while `AlphaSignalMsg`
+travels on `signals`, and the document places both in the signals family.
+
+**Code 0 is reserved and is never a message.** A message is value-initialized as `T m{}` before
+its fields are written, which sets `msg_type` to zero (see "Every message is value-initialized
+before use"). A zeroed buffer, a truncated read, or a slot that was never written would otherwise
+decode as a real message of whatever type zero names. `RiskRejectReason`, `VenueId`, and
+`ReconMismatch` reserve zero for the same reason.
+
+A consumer switches on the tag, because a channel is a transport and not a type. Five of the eight
+channels carry more than one body, and several processes write to `md` and `control`. The audit
+log is one mixed stream of the thirteen types recorded from `md`, `signals`, `orders`, `fills`,
+`risk_events`, and `ledger`, so replay classifies each record by this field.
+
+**A body field is not a `msg_type`.** `side`, `status`, and `order_type` select a variant within
+one fixed layout, and the layout does not change. The three ledger-adjustment messages are
+therefore three types rather than one with a discriminator, even though `PositionAdoptedMsg` and
+`BasisAdoptedMsg` have identical layouts. The tag tells a reader which field it is holding,
+without a second lookup.
+
 **`msg_len`** is the total length. A reader that does not recognise a `msg_type` can use it to
 skip exactly the right number of bytes. It also lets a raw binary log be replayed without the
 bus's own framing, because each message carries its own length.
@@ -80,7 +135,7 @@ sequence-gap detection ambiguous, which is the failure the field exists to preve
 | Id or range   | Process                                        |
 | ------------- | ---------------------------------------------- |
 | 1             | feed handler, primary venue                    |
-| 2             | strategy, canonical single-strategy process    |
+| 2             | strategy, the canonical strategy process       |
 | 3             | risk engine                                    |
 | 4             | OMS                                            |
 | 5             | EMS, primary venue gateway                     |
@@ -93,15 +148,20 @@ sequence-gap detection ambiguous, which is the failure the field exists to preve
 | 256 to 299    | additional gateways, one per venue             |
 | 300 and above | reserved                                       |
 
+Id 2 is one process, not one per strategy. It hosts every strategy in `config/strategies.yaml`
+unless that entry is given a process of its own, so the process emits for several strategies while
+its `producer_id` stays 2. `strategy_id` is what distinguishes them. A strategy that needs its own
+crash domain and pinned core takes `100 + N` from the range above instead.
+
 Feed handlers and gateways take separate ranges because they are different layers with
 independent crash domains. Sharing one range would let a venue's feed handler and its gateway
 collide, and the collision would stay invisible until sequence-gap detection misfired.
 
 **`flags`** is a bitmask of facts about how the message was produced. One bit is defined.
 
-| Bit | Name           | Meaning                                                                |
-| --- | -------------- | ---------------------------------------------------------------------- |
-| 0   | `ModelledFill` | the `fee` on this execution report came from a model, not from a venue |
+| Bit | Name                   | Meaning                                                                |
+| --- | ---------------------- | ---------------------------------------------------------------------- |
+| 0   | `kMsgFlagModelledFill` | the `fee` on this execution report came from a model, not from a venue |
 
 A backtest has no exchange to report a fee, so the simulated venue invents one from a schedule.
 That invented number is honest as long as everything downstream knows it is invented. Without the
@@ -286,7 +346,7 @@ Every message is a `MsgHeader` followed by its body. The offsets in the next sec
 
 ## The message set
 
-Eighteen message types, in six families. Throughout, "core" means the field is part of the
+Nineteen message types, in seven families. Throughout, "core" means the field is part of the
 original design and would be designed again. A noted addition explains the failure it closes.
 
 ### Market data — L1 (ingestion) produces
@@ -571,7 +631,7 @@ through volume tiers and promotions. A locally modelled fee is internal state th
 reconciled against a venue statement. `liquidity_flag` accompanies it because the amount and the
 reason are different facts. `fee` says what was paid. `liquidity_flag` says whether we were
 providing or taking liquidity, which is what later analysis needs to attribute cost. Whether a fee
-was reported or modelled is not here. It is `MsgFlag::ModelledFill` on the header.
+was reported or modelled is not here. It is `kMsgFlagModelledFill` on the header.
 
 ### Control — every process
 

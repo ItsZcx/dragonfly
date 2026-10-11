@@ -49,8 +49,9 @@ strategies:
       exit_threshold_bps: 2
 
 # Assignment of logical strategies to the process that runs them.
-# Producer 2 is the canonical single-strategy process; isolated strategy
-# processes use 100 + N (contracts.md, "The message header").
+# Producer 2 is the canonical strategy process and hosts every strategy that does
+# not need its own; isolated strategy processes use 100 + N (contracts.md,
+# "The message header").
 processes:
   - producer_id: 2
     strategy_ids: [1]

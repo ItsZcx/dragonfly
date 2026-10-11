@@ -168,8 +168,8 @@ TEST(CoreTypesIds, EveryIdIsTriviallyCopyableAndStandardLayout)
 // This is why the members carry `{}` rather than a bare declaration.
 TEST(CoreTypesIds, ValueInitializationZeroesTheId)
 {
-    const df::StrategyId kStrategy{};
-    const df::SignalId kSignal{};
+    const df::StrategyId    kStrategy{};
+    const df::SignalId      kSignal{};
     const df::ClientOrderId kOrder{};
 
     EXPECT_EQ(kStrategy.value, 0);
@@ -194,7 +194,7 @@ TEST(CoreTypesIds, TheCeilingIsSixteenBits)
 
 TEST(CoreTypesIds, AStrategyIdAtTheCeilingIsAccepted)
 {
-    const std::optional<df::StrategyId> kLow = df::MakeStrategyId(0);
+    const std::optional<df::StrategyId> kLow  = df::MakeStrategyId(0);
     const std::optional<df::StrategyId> kHigh = df::MakeStrategyId(df::kMaxStrategyId);
 
     // A plain if-guard rather than ASSERT_TRUE. clang-tidy's
@@ -231,7 +231,7 @@ TEST(CoreTypesIds, TheWholeRejectedRangeIsRejected)
 TEST(CoreTypesIds, TheRejectedValueWouldHaveTruncatedToZero)
 {
     constexpr std::uint32_t kRejected = 65'536;
-    constexpr std::uint64_t kPacked = static_cast<std::uint64_t>(kRejected) << 48;
+    constexpr std::uint64_t kPacked   = static_cast<std::uint64_t>(kRejected) << 48;
 
     // The low 16 bits of the packed result are the strategy's slot, and they are
     // indistinguishable from strategy 0.
@@ -252,8 +252,8 @@ TEST(CoreTypesIds, EveryAcceptedIdSurvivesThePackIntoASignalId)
             FAIL() << "the factory rejected a value inside the ceiling: " << strategy;
         }
 
-        const std::uint64_t kPacked = static_cast<std::uint64_t>(kId->value) << 48;
-        const auto kReadBack = static_cast<std::uint32_t>(kPacked >> 48);
+        const std::uint64_t kPacked   = static_cast<std::uint64_t>(kId->value) << 48;
+        const auto          kReadBack = static_cast<std::uint32_t>(kPacked >> 48);
         EXPECT_EQ(kReadBack, strategy) << "the accepted id did not survive the pack";
     }
 
