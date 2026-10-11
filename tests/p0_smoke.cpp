@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <df/msg/header.hpp>
 #include <span>
 #include <string_view>
 #include <type_traits>
@@ -23,25 +24,11 @@
 namespace
 {
 
-// Mirrors the shape of the real message header (contracts.md): a fixed-size
-// POD with no pointers, no virtuals, and no owned resources.
-struct MsgHeader
-{
-    std::uint32_t msg_type;     //  0 ..  4
-    std::uint32_t msg_len;      //  4 ..  8
-    std::uint32_t producer_id;  //  8 .. 12
-    std::uint8_t flags;         // 12 .. 13  MsgFlag bitmask
-    // 3 bytes of padding, so ts_ns starts 8-byte aligned
-    std::uint64_t ts_ns;    // 16 .. 24
-    std::uint64_t seq_num;  // 24 .. 32
-};
-
-// Mirrors df::msg::MsgFlag (contracts.md, the `flags` field).
-enum class MsgFlag : std::uint8_t
-{
-    None = 0,
-    ModelledFill = 1,
-};
+// The real message header (contracts.md, "The message header") and the flag bit
+// it carries. No local copy: header.hpp asserts the layout, and this file only
+// consumes it.
+using df::msg::kMsgFlagModelledFill;
+using df::msg::MsgHeader;
 
 // Mirrors the audit-log entry framing (layers.md, L6 (observability)). Every entry in the log
 // is length-prefixed, and a gap is an explicit entry rather than a hole, so an
@@ -260,7 +247,8 @@ TEST(P0Smoke, MsgHeaderLayoutMatchesSpec)
     static_assert(offsetof(MsgHeader, seq_num) == 24);
 
     // The flag bitmask must round-trip through a byte-sized field.
-    static_assert(sizeof(MsgFlag) == 1, "MsgFlag must fit the header's flags byte");
+    static_assert(sizeof(kMsgFlagModelledFill) == 1, "the flag must fit the header's flags byte");
+    static_assert(kMsgFlagModelledFill == 1, "bit 0 is the modelled-fill bit");
     SUCCEED();
 }
 

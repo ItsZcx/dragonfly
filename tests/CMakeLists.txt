@@ -46,7 +46,9 @@
 # The toolchain smoke test. Belongs to no component, so it stays at the root.
 if(DF_HAVE_GTEST)
     add_executable(df_p0_smoke p0_smoke.cpp)
-    target_link_libraries(df_p0_smoke PRIVATE GTest::gtest_main)
+    # It consumes the real MsgHeader rather than a local copy, so it needs the
+    # contracts include path.
+    target_link_libraries(df_p0_smoke PRIVATE df::contracts GTest::gtest_main)
 
     target_compile_options(df_p0_smoke PRIVATE -Wall -Wextra -Werror -Wpedantic)
 
