@@ -287,8 +287,16 @@ Anything variable-length would need allocation or indirection, and the hot path 
 This is why an order book snapshot has a compile-time depth cap: the array must have a size the
 compiler knows.
 
-Every message is also *trivially copyable* and *standard layout*. Those are the two properties
-that make it valid to cast a pointer over raw bytes.
+Every message is also *trivially copyable* and *standard layout*. Both are required, and each
+checks a different property.
+
+*Trivially copyable* means the value lives in the object's own bytes, so a byte copy and a
+`reinterpret_cast` over a wire buffer are valid. A `std::string` member would break this: the bytes
+would hold a pointer, and copying them would give two objects that free one buffer.
+
+*Standard layout* means the field offsets are fixed. The writer and every reader are compiled
+separately, so they must agree on where each field sits. `offsetof` is defined only for a
+standard-layout type.
 
 ### Every message is value-initialized before use
 
@@ -309,6 +317,12 @@ twice would produce different bytes, and byte-identical replay would be impossib
 Zeroing each gap by hand was rejected. A field reorder would silently invalidate it while still
 compiling. `T m{}` is a property of how a message is built, so it cannot be forgotten at one call
 site or broken by a layout change.
+
+Do not add a user-provided constructor. A message type must stay an aggregate, so that `T m{}`
+value-initializes the object and zeroes the padding. A user-provided constructor keeps the type
+trivially copyable and standard layout, so the two `static_assert`s in the header do not catch it,
+but it stops the zeroing and the padding keeps whatever the memory held. Each message header
+asserts `std::is_trivially_default_constructible_v` to turn that change into a build failure.
 
 A test checks this. It value-initializes each message type twice, writes identical values, and
 asserts the bytes are equal. That single test catches indeterminate padding, a forgotten field,
