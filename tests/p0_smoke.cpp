@@ -50,7 +50,7 @@ enum class LogEntryType : std::uint16_t
 {
     Message =
         0,  // a recorded wire message, verbatim (incl. padding zeros, contracts.md, "Every message is value-initialized before use")
-    SeqGap = 1,     // a hole: producer_id(s) affected + expected/observed seq_num
+    SeqGap    = 1,  // a hole: producer_id(s) affected + expected/observed seq_num
     LogOpened = 2,  // first entry of a file: writer id, wall-clock start, format version
     LogClosed = 3,  // clean shutdown. Absence means the log was truncated.
 };
@@ -58,7 +58,7 @@ enum class LogEntryType : std::uint16_t
 struct LogEntryHeader
 {
     std::uint32_t length;      //  0 ..  4  bytes of payload after this header
-    LogEntryType entry_type;   //  4 ..  6
+    LogEntryType  entry_type;  //  4 ..  6
     std::uint16_t pad;         //  6 ..  8  always zero (contracts.md, "Every message is value-initialized before use")
     std::uint64_t recv_ts_ns;  //  8 .. 16  the recorder's own clock, when it received it
 };
@@ -68,7 +68,7 @@ struct LogEntryHeader
 // every process both publishes and subscribes to.
 struct BookSnapshotRequestMsg
 {
-    MsgHeader hdr;                //  0 .. 32
+    MsgHeader     hdr;            //  0 .. 32
     std::uint32_t instrument_id;  // 32 .. 36
     std::uint32_t requester_id;   // 36 .. 40  explicit, not inferred from hdr
     std::uint64_t after_seq_num;  // 40 .. 48  snapshot must be at least this fresh
@@ -80,10 +80,10 @@ struct BookSnapshotRequestMsg
 // possible failure mode for an emergency control surface.
 enum class KillCommand : std::uint8_t
 {
-    Halt = 0,
+    Halt      = 0,
     CancelAll = 1,
-    Flatten = 2,
-    Resume = 3
+    Flatten   = 2,
+    Resume    = 3
 };
 
 // Mirrors the per-channel publish-failure policy (contracts.md, "Publication failure is per-channel"). Aeron's
@@ -96,8 +96,8 @@ enum class PublishFailurePolicy : std::uint8_t
 {
     NeverFails = 0,  // capacity makes a full window a fatal error
     DropAndCount =
-        1,           // lossy by nature; self-heals via seq_num gap (contracts.md, "Sequence numbers across a restart")
-    FailClosed = 2,  // latch the kill switch rather than drop
+        1,  // lossy by nature; self-heals via seq_num gap (contracts.md, "Sequence numbers across a restart")
+    FailClosed          = 2,  // latch the kill switch rather than drop
     RetryUntilDelivered = 3
 };
 
@@ -108,12 +108,12 @@ enum class PublishFailurePolicy : std::uint8_t
 // cancel+new emulation this message exists to avoid.
 struct ReplaceOrderMsg
 {
-    MsgHeader hdr;                  //  0 .. 32
+    MsgHeader     hdr;              //  0 .. 32
     std::uint64_t client_order_id;  // 32 .. 40  UNCHANGED id of the order being amended
     std::uint32_t instrument_id;    // 40 .. 44
     std::uint32_t venue_id;         // 44 .. 48  (0 = any)
-    std::int64_t new_qty;           // 48 .. 56  ABSOLUTE new total quantity, not a delta
-    std::int64_t new_price;         // 56 .. 64  ABSOLUTE new limit price
+    std::int64_t  new_qty;          // 48 .. 56  ABSOLUTE new total quantity, not a delta
+    std::int64_t  new_price;        // 56 .. 64  ABSOLUTE new limit price
     std::uint64_t sent_ts_ns;       // 64 .. 72
 };
 
@@ -122,7 +122,7 @@ struct ReplaceOrderMsg
 // already padding, so the message stays 48 bytes.
 struct HeartbeatMsg
 {
-    MsgHeader hdr;       //  0 .. 32
+    MsgHeader    hdr;    //  0 .. 32
     std::uint8_t state;  // 32 .. 33
     // 3 bytes padding
     std::uint32_t ref_data_hash;  // 36 .. 40  content hash of loaded reference data
@@ -134,15 +134,15 @@ struct HeartbeatMsg
 // venue confirms it the order is still live and still reserved.
 enum class OrderRecordState : std::uint8_t
 {
-    PendingNew = 0,
-    Live = 1,
+    PendingNew      = 0,
+    Live            = 1,
     PartiallyFilled = 2,
-    PendingCancel = 3,
-    PendingReplace = 4,
-    Filled = 5,
-    Cancelled = 6,
-    Rejected = 7,
-    Abandoned = 8
+    PendingCancel   = 3,
+    PendingReplace  = 4,
+    Filled          = 5,
+    Cancelled       = 6,
+    Rejected        = 7,
+    Abandoned       = 8
 };
 
 constexpr bool IsTerminal(OrderRecordState s)
@@ -153,25 +153,25 @@ constexpr bool IsTerminal(OrderRecordState s)
 // build rather than silently changing the wire layout.
 struct ReconRequestMsg
 {
-    MsgHeader hdr;
+    MsgHeader     hdr;
     std::uint64_t recon_id;
     std::uint32_t venue_id;
-    std::uint8_t trigger;
+    std::uint8_t  trigger;
     // 3 bytes padding
     std::uint64_t requested_ts_ns;
 };
 
 struct ReconResultMsg
 {
-    MsgHeader hdr;
+    MsgHeader     hdr;
     std::uint64_t recon_id;
     std::uint32_t venue_id;
     std::uint32_t instrument_id;
-    std::int64_t venue_net_qty;
-    std::int64_t venue_avg_px;
+    std::int64_t  venue_net_qty;
+    std::int64_t  venue_avg_px;
     std::uint32_t venue_open_orders;  // the venue's TOTAL open-order count
     std::uint32_t venue_fill_count;
-    std::uint8_t status;
+    std::uint8_t  status;
     // 3 bytes padding
     std::uint32_t venue_order_count;    // ids present below (<= kMaxReconOrders)
     std::uint64_t venue_order_ids[64];  // client_order_ids echoed by the venue
@@ -180,14 +180,14 @@ struct ReconResultMsg
 
 struct ReconVerdictMsg
 {
-    MsgHeader hdr;
+    MsgHeader     hdr;
     std::uint64_t recon_id;
     std::uint32_t venue_id;
     std::uint32_t instrument_id;
-    std::int64_t qty_delta;
+    std::int64_t  qty_delta;
     std::uint32_t order_delta;
-    std::uint8_t outcome;
-    std::uint8_t mismatch_class;
+    std::uint8_t  outcome;
+    std::uint8_t  mismatch_class;
     // 6 bytes padding
     std::uint64_t finalize_ts_ns;
 };
@@ -199,23 +199,23 @@ struct ReconVerdictMsg
 // hardest, and P10's "reconstructs identically" cannot hold.
 enum class LedgerAdjustmentType : std::uint8_t
 {
-    OrderAbandoned = 0,
+    OrderAbandoned  = 0,
     PositionAdopted = 1,
-    BasisAdopted = 2,
+    BasisAdopted    = 2,
 };
 
 struct LedgerAdjustmentMsg
 {
-    MsgHeader hdr;
+    MsgHeader     hdr;
     std::uint64_t adjustment_id;    // monotonic per producer (L4)
     std::uint64_t recon_id;         // the pass that caused it; 0 for a sweep
     std::uint64_t client_order_id;  // valid for OrderAbandoned, else 0
     std::uint32_t instrument_id;
     std::uint32_t venue_id;  // 0 = not venue-specific
-    std::uint8_t type;       // LedgerAdjustmentType
+    std::uint8_t  type;      // LedgerAdjustmentType
     // 7 bytes padding
-    std::int64_t new_net_qty;
-    std::int64_t new_avg_entry;
+    std::int64_t  new_net_qty;
+    std::int64_t  new_avg_entry;
     std::uint64_t applied_ts_ns;
 };
 
@@ -318,15 +318,15 @@ TEST(P0Smoke, ReconciliationComparesOrderIdentityNotCount)
         return true;
     };
 
-    ReconResultMsg r{};
+    ReconResultMsg      r{};
     const std::uint64_t order_a = 0x00030000000000AAull;  // L4 holds this one
     const std::uint64_t order_b = 0x00050000000000BBull;  // venue has this one
 
     // The dangerous case: counts agree (1 == 1), identities do not.
-    r.venue_open_orders = 1;
-    r.venue_order_count = 1;
+    r.venue_open_orders  = 1;
+    r.venue_order_count  = 1;
     r.venue_order_ids[0] = order_b;
-    bool truncated = false;
+    bool truncated       = false;
     EXPECT_FALSE(same_order_set(r, {order_a}, truncated));
     EXPECT_FALSE(truncated);
 
@@ -342,7 +342,7 @@ TEST(P0Smoke, ReconciliationComparesOrderIdentityNotCount)
 
     // The block is fixed-capacity, so the cap is a hard bound the truncation rule
     // protects. It must stay above the reference max_open_orders ceiling (50).
-    constexpr std::uint32_t kMaxReconOrders = 64;
+    constexpr std::uint32_t kMaxReconOrders         = 64;
     constexpr std::uint32_t kReferenceMaxOpenOrders = 50;
     EXPECT_GT(kMaxReconOrders, kReferenceMaxOpenOrders);
     EXPECT_EQ(sizeof(r.venue_order_ids) / sizeof(r.venue_order_ids[0]), kMaxReconOrders);
@@ -367,13 +367,13 @@ TEST(P0Smoke, LedgerAdjustmentsAreRecordedAndIdempotent)
     // Write-ahead ordering (contracts.md, "Publication failure is per-channel"): the adjustment is logged BEFORE it is applied.
     // If the `ledger` publish fails, live state must not change. Modelled as a
     // tiny state machine so the ordering is the thing asserted, not a comment.
-    bool published = true;
-    bool applied = false;
+    bool published  = true;
+    bool applied    = false;
     auto try_adjust = [&](bool publish_ok) {
         if (!publish_ok)
             return;  // not delivered -> not applied
         published = true;
-        applied = true;
+        applied   = true;
     };
     try_adjust(/*publish_ok=*/false);
     EXPECT_FALSE(applied) << "an undeliverable adjustment must not be applied (write-ahead)";
@@ -395,8 +395,8 @@ TEST(P0Smoke, LedgerAdjustmentsAreRecordedAndIdempotent)
         }
     };
     LedgerAdjustmentMsg a{};
-    a.type = static_cast<std::uint8_t>(LedgerAdjustmentType::PositionAdopted);
-    a.new_net_qty = -500'000'000;
+    a.type           = static_cast<std::uint8_t>(LedgerAdjustmentType::PositionAdopted);
+    a.new_net_qty    = -500'000'000;
     std::int64_t net = 0, avg = 0;
     apply_adjustment(net, avg, a);
     apply_adjustment(net, avg, a);
@@ -404,7 +404,7 @@ TEST(P0Smoke, LedgerAdjustmentsAreRecordedAndIdempotent)
 
     // A duplicated/out-of-order adjustment is detectable by adjustment_id, and
     // replay ignores anything not greater than the last applied.
-    a.adjustment_id = 7;
+    a.adjustment_id            = 7;
     std::uint64_t last_applied = 7;
     EXPECT_FALSE(a.adjustment_id > last_applied) << "a replay must skip a non-advancing adjustment";
     a.adjustment_id = 8;
@@ -423,21 +423,21 @@ TEST(P0Smoke, ValueInitZeroesPadding)
     ReconResultMsg b{};
     for (auto* m : {&a, &b})
     {
-        m->hdr.msg_type = 71;
-        m->hdr.flags = 0;
-        m->recon_id = 42;
-        m->venue_id = 100;
-        m->instrument_id = 1001;
-        m->venue_net_qty = 1'000'000'000;
-        m->venue_avg_px = 100'000'000'000;
-        m->venue_open_orders = 3;
-        m->venue_fill_count = 17;
-        m->status = 0;
-        m->venue_order_count = 3;
+        m->hdr.msg_type       = 71;
+        m->hdr.flags          = 0;
+        m->recon_id           = 42;
+        m->venue_id           = 100;
+        m->instrument_id      = 1001;
+        m->venue_net_qty      = 1'000'000'000;
+        m->venue_avg_px       = 100'000'000'000;
+        m->venue_open_orders  = 3;
+        m->venue_fill_count   = 17;
+        m->status             = 0;
+        m->venue_order_count  = 3;
         m->venue_order_ids[0] = 0x0005000000000001ull;
         m->venue_order_ids[1] = 0x0005000000000002ull;
         m->venue_order_ids[2] = 0x0005000000000003ull;
-        m->venue_ts_ns = 123456789;
+        m->venue_ts_ns        = 123456789;
     }
     EXPECT_EQ(std::memcmp(&a, &b, sizeof(a)), 0) << "padding is not zero — see contracts.md";
 
@@ -447,10 +447,10 @@ TEST(P0Smoke, ValueInitZeroesPadding)
     ReconRequestMsg r2{};
     for (auto* m : {&r1, &r2})
     {
-        m->hdr.msg_type = 70;
-        m->recon_id = 7;
-        m->venue_id = 100;
-        m->trigger = 0;
+        m->hdr.msg_type    = 70;
+        m->recon_id        = 7;
+        m->venue_id        = 100;
+        m->trigger         = 0;
         m->requested_ts_ns = 99;
     }
     EXPECT_EQ(std::memcmp(&r1, &r2, sizeof(r1)), 0) << "padding is not zero — see contracts.md";
@@ -459,13 +459,13 @@ TEST(P0Smoke, ValueInitZeroesPadding)
     ReconVerdictMsg v2{};
     for (auto* m : {&v1, &v2})
     {
-        m->hdr.msg_type = 72;
-        m->recon_id = 7;
-        m->venue_id = 100;
-        m->instrument_id = 1001;
-        m->qty_delta = -5;
-        m->order_delta = 1;
-        m->outcome = 1;
+        m->hdr.msg_type   = 72;
+        m->recon_id       = 7;
+        m->venue_id       = 100;
+        m->instrument_id  = 1001;
+        m->qty_delta      = -5;
+        m->order_delta    = 1;
+        m->outcome        = 1;
         m->mismatch_class = 4;
         m->finalize_ts_ns = 1234;
     }
@@ -482,8 +482,8 @@ namespace
 // edit to either one breaks the build.
 enum class SeqEvent : std::uint8_t
 {
-    Contiguous = 0,
-    Restart = 1,       // seq backwards, time forward  -> reset watermark
+    Contiguous   = 0,
+    Restart      = 1,  // seq backwards, time forward  -> reset watermark
     LostMessages = 2,  // seq jumped forward            -> keep watermark, resync
     CorruptClock = 3,  // time went backwards           -> fail closed
 };
@@ -533,18 +533,18 @@ TEST(P0Smoke, ReplayRepublishesBytesUnchanged)
     // ts_ns publishes different bytes for the same fixture, so golden tests fail
     // depending on how the sim clock was seeded.
     ReconResultMsg logged{};
-    logged.hdr.msg_type = 71;
-    logged.hdr.producer_id = 5;    // the ORIGINAL producer, not Producer_Replay
-    logged.hdr.ts_ns = 4'242'000;  // the ORIGINAL stamp from the log
-    logged.hdr.seq_num = 4999;
-    logged.recon_id = 1;
-    logged.venue_id = 100;
-    logged.venue_net_qty = 7;
+    logged.hdr.msg_type    = 71;
+    logged.hdr.producer_id = 5;          // the ORIGINAL producer, not Producer_Replay
+    logged.hdr.ts_ns       = 4'242'000;  // the ORIGINAL stamp from the log
+    logged.hdr.seq_num     = 4999;
+    logged.recon_id        = 1;
+    logged.venue_id        = 100;
+    logged.venue_net_qty   = 7;
 
     // "Replay": the sim clock advances to the event's time and the bytes go out
     // unchanged. Note the clock is advanced TO ts_ns — it does not become ts_ns.
-    std::uint64_t sim_clock_ns = 0;
-    sim_clock_ns = logged.hdr.ts_ns;
+    std::uint64_t sim_clock_ns     = 0;
+    sim_clock_ns                   = logged.hdr.ts_ns;
     const ReconResultMsg published = logged;  // verbatim, no re-stamp
 
     EXPECT_EQ(std::memcmp(&published, &logged, sizeof(logged)), 0) << "replay must not rewrite the message";
@@ -560,9 +560,9 @@ TEST(P0Smoke, ReplayRepublishesBytesUnchanged)
     // simulation creates them." Modelled here with the structs mirrored at P0;
     // the real ExecutionReportMsg case belongs to P7.
     ReconVerdictMsg sim_created{};
-    sim_created.hdr.msg_type = 72;
+    sim_created.hdr.msg_type    = 72;
     sim_created.hdr.producer_id = 5;
-    sim_created.hdr.ts_ns = sim_clock_ns + 50'000;  // sim clock + modelled latency
+    sim_created.hdr.ts_ns       = sim_clock_ns + 50'000;  // sim clock + modelled latency
     EXPECT_NE(sim_created.hdr.ts_ns, logged.hdr.ts_ns) << "a simulated message is stamped afresh";
     EXPECT_GT(sim_created.hdr.ts_ns, sim_clock_ns) << "a new message is stamped after the current sim time";
 }
@@ -606,10 +606,10 @@ TEST(P0Smoke, StrategyRegistrationBindsConfigToCode)
     // strategy_id uniqueness is STRUCTURAL, not stylistic: it occupies the top 16
     // bits of signal_id (layers.md, L2 (strategy)). A collision silently merges two strategies'
     // attribution and corrupts the per-strategy daily-loss breaker (layers.md, L3 (risk) step 8).
-    constexpr std::uint32_t kStrategyId1 = 1;
+    constexpr std::uint32_t kStrategyId1  = 1;
     constexpr std::uint64_t kSignalIdMask = 0x0000FFFFFFFFFFFFull;
-    const auto sig_a = (static_cast<std::uint64_t>(kStrategyId1) << 48) | (42u & kSignalIdMask);
-    const auto sig_b = (static_cast<std::uint64_t>(kStrategyId1) << 48) | (43u & kSignalIdMask);
+    const auto              sig_a         = (static_cast<std::uint64_t>(kStrategyId1) << 48) | (42u & kSignalIdMask);
+    const auto              sig_b         = (static_cast<std::uint64_t>(kStrategyId1) << 48) | (43u & kSignalIdMask);
     // Same strategy, different counters -> distinct ids, shared high bits.
     EXPECT_NE(sig_a, sig_b);
     EXPECT_EQ(sig_a >> 48, sig_b >> 48) << "the high 16 bits ARE the strategy id";
@@ -622,7 +622,7 @@ TEST(P0Smoke, StrategyRegistrationBindsConfigToCode)
     // << 56 form) silently truncated every gateway id: producer 256 collided
     // with producer 0, 257 with 1, 299 with 43. Assert the collision is gone.
     constexpr std::uint64_t kOwnerMask = 0x0000FFFFFFFFFFFFull;
-    const auto coid = [](std::uint32_t producer_id, std::uint64_t n) {
+    const auto              coid       = [](std::uint32_t producer_id, std::uint64_t n) {
         return (static_cast<std::uint64_t>(producer_id & 0xFFFFu) << 48) | (n & kOwnerMask);
     };
     EXPECT_EQ(coid(5, 7), coid(5, 7));
@@ -702,7 +702,7 @@ TEST(P0Smoke, RiskLimitsConfigCanExpressThePipeline)
     // Absent != 0. Absent means "no constraint at this tier" and falls through to
     // the next tier that specifies one; 0 means "disabled" at the tier where it is
     // written. Conflating them makes an omitted key block all trading.
-    constexpr int kAbsentLimit = -1;  // sentinel distinct from a real 0
+    constexpr int kAbsentLimit   = -1;  // sentinel distinct from a real 0
     constexpr int kDisabledLimit = 0;
     EXPECT_NE(kAbsentLimit, kDisabledLimit);
 
@@ -732,7 +732,7 @@ TEST(P0Smoke, RiskLimitsConfigCanExpressThePipeline)
     // book_depth is a PROCESS setting, not the wire cap: BookSnapshotMsg is fixed
     // at kMaxBookLevels = 64 (contracts.md, `BookSnapshotMsg`). Any retained depth <= 64 is publishable; more
     // is not representable. The two numbers are independent.
-    constexpr std::uint32_t kMaxBookLevels = 64;
+    constexpr std::uint32_t kMaxBookLevels       = 64;
     constexpr std::uint32_t kConfiguredBookDepth = 20;
     EXPECT_LE(kConfiguredBookDepth, kMaxBookLevels) << "a retained depth above the wire cap is not representable";
     EXPECT_NE(kConfiguredBookDepth, kMaxBookLevels)
@@ -764,8 +764,8 @@ TEST(P0Smoke, BuildScratchIsNeverVersioned)
     // it is one `git add -A` from entering history permanently.
 
     // The categories, asserted as the rule rather than as a file listing.
-    constexpr bool kSourcesAreVersioned = true;       // contracts/ core/ apps/ config/
-    constexpr bool kManifestsAreVersioned = true;     // vcpkg.json, uv.lock
+    constexpr bool kSourcesAreVersioned     = true;   // contracts/ core/ apps/ config/
+    constexpr bool kManifestsAreVersioned   = true;   // vcpkg.json, uv.lock
     constexpr bool kBuildScratchIsVersioned = false;  // build/, .vcpkg/, vcpkg_installed/
     EXPECT_TRUE(kSourcesAreVersioned);
     EXPECT_TRUE(kManifestsAreVersioned);
@@ -780,7 +780,7 @@ TEST(P0Smoke, BuildScratchIsNeverVersioned)
     // .gitignore files) while its CONTENTS are ignored. Verified for real with
     // `git check-ignore`, not assumed.
     constexpr bool kDataDirectoryTracked = true;
-    constexpr bool kDataContentsIgnored = true;
+    constexpr bool kDataContentsIgnored  = true;
     EXPECT_TRUE(kDataDirectoryTracked);
     EXPECT_TRUE(kDataContentsIgnored);
 }
@@ -862,7 +862,7 @@ TEST(P0Smoke, ConfigSkewIsDetectableNotSilent)
     // exposure. The quantization grid is not reloadable: changing it changes what
     // an already-live order means.
     constexpr bool kQuantizationGridIsHotReloadable = false;
-    constexpr bool kStatusIsHotReloadable = true;
+    constexpr bool kStatusIsHotReloadable           = true;
     EXPECT_FALSE(kQuantizationGridIsHotReloadable);
     EXPECT_TRUE(kStatusIsHotReloadable);
 
@@ -918,8 +918,8 @@ TEST(P0Smoke, ReplaceIsNotCancelPlusNew)
     // new_qty/new_price are ABSOLUTE, not deltas: applying the same replace twice
     // converges to the same terms, which is what makes the contracts.md, "Publication failure is per-channel" retry path safe.
     ReplaceOrderMsg r{};
-    r.new_qty = 2000000000;
-    r.new_price = 100000000000;
+    r.new_qty                  = 2000000000;
+    r.new_price                = 100000000000;
     const auto qty_after_twice = r.new_qty;
     EXPECT_EQ(qty_after_twice, 2000000000) << "absolute quantities are idempotent";
 }
@@ -937,12 +937,12 @@ TEST(P0Smoke, PublishFailureIsHandledPerChannel)
     // The load-bearing invariant: no droppable channel mutates L4's state. `orders`
     // and `fills` are the only channels that change the ledger, and neither may use
     // best-effort delivery. Intent can be lost; a commitment cannot.
-    constexpr PublishFailurePolicy kOrders = PublishFailurePolicy::FailClosed;
-    constexpr PublishFailurePolicy kFills = PublishFailurePolicy::NeverFails;
-    constexpr PublishFailurePolicy kMd = PublishFailurePolicy::NeverFails;
-    constexpr PublishFailurePolicy kSignals = PublishFailurePolicy::DropAndCount;
+    constexpr PublishFailurePolicy kOrders     = PublishFailurePolicy::FailClosed;
+    constexpr PublishFailurePolicy kFills      = PublishFailurePolicy::NeverFails;
+    constexpr PublishFailurePolicy kMd         = PublishFailurePolicy::NeverFails;
+    constexpr PublishFailurePolicy kSignals    = PublishFailurePolicy::DropAndCount;
     constexpr PublishFailurePolicy kRiskEvents = PublishFailurePolicy::DropAndCount;
-    constexpr PublishFailurePolicy kControl = PublishFailurePolicy::RetryUntilDelivered;
+    constexpr PublishFailurePolicy kControl    = PublishFailurePolicy::RetryUntilDelivered;
 
     // Nothing that mutates the ledger is droppable.
     EXPECT_NE(kOrders, PublishFailurePolicy::DropAndCount)
@@ -1016,7 +1016,7 @@ TEST(P0Smoke, FeedHandlerHasAnInboundPortForResync)
     // reaches every consumer at once -- which is what makes coalescing correct.
     // That asymmetry is asserted here as a channel-property fact.
     constexpr int kMdIsBroadcastToAllConsumers = 1;
-    constexpr int kControlReplies = 0;  // no reply is sent on `control`
+    constexpr int kControlReplies              = 0;  // no reply is sent on `control`
     EXPECT_EQ(kControlReplies, 0) << "the snapshot is ordinary market data, not a control reply";
     EXPECT_EQ(kMdIsBroadcastToAllConsumers, 1)
         << "one publish must satisfy every consumer (contracts.md, `BookSnapshotRequestMsg`)";
@@ -1026,7 +1026,7 @@ TEST(P0Smoke, FeedHandlerHasAnInboundPortForResync)
     // consumers share one feed (contracts.md, `BookSnapshotRequestMsg`).
     BookSnapshotRequestMsg req{};
     req.hdr.producer_id = 2;  // the requester's identity on the wire...
-    req.requester_id = 2;     // ...also carried explicitly, so a handler can log who asked
+    req.requester_id    = 2;  // ...also carried explicitly, so a handler can log who asked
     EXPECT_EQ(req.requester_id, req.hdr.producer_id);
     EXPECT_EQ(sizeof(BookSnapshotRequestMsg), 48u);
 
@@ -1076,9 +1076,9 @@ TEST(P0Smoke, RecorderIsItsOwnProducerAndOwnsTheLog)
     // input to recovery and the artifact golden tests compare against, so it must not
     // share a crash domain with the disposable TUI, and it cannot be L4: L4 sees
     // `orders` and `fills` but not `md`, so L4 alone could not produce a replayable log.
-    constexpr std::uint32_t kProducerOMS = 4;
+    constexpr std::uint32_t kProducerOMS        = 4;
     constexpr std::uint32_t kProducerMonitoring = 6;
-    constexpr std::uint32_t kProducerRecorder = 9;
+    constexpr std::uint32_t kProducerRecorder   = 9;
 
     EXPECT_NE(kProducerRecorder, kProducerOMS) << "the log must not share L4's crash domain";
     EXPECT_NE(kProducerRecorder, kProducerMonitoring) << "observability != durability";
@@ -1102,11 +1102,11 @@ TEST(P0Smoke, VenueIdSpaceAllowsNewVenuesWithoutRecompiling)
     // the id for a venue is representable in the wire field for a venue whose
     // adapter did not exist at compile time -- i.e. the ids are uint32_t data, and
     // the reserved ranges are honoured.
-    constexpr std::uint32_t kVenueAny = 0;    // wildcard: receiving gateway claims it
-    constexpr std::uint32_t kReservedLo = 1;  // 1..99 reserved: must not be a live venue
-    constexpr std::uint32_t kReservedHi = 99;
-    constexpr std::uint32_t kBinance = 100;  // config/gateways/binance.yaml
-    constexpr std::uint32_t kCoinbase = 101;
+    constexpr std::uint32_t kVenueAny    = 0;  // wildcard: receiving gateway claims it
+    constexpr std::uint32_t kReservedLo  = 1;  // 1..99 reserved: must not be a live venue
+    constexpr std::uint32_t kReservedHi  = 99;
+    constexpr std::uint32_t kBinance     = 100;  // config/gateways/binance.yaml
+    constexpr std::uint32_t kCoinbase    = 101;
     constexpr std::uint32_t kFutureVenue = 102;  // a venue needing NO C++ enum change
 
     EXPECT_EQ(kVenueAny, 0U) << "0 is the wildcard and must stay so";
@@ -1136,7 +1136,7 @@ TEST(P0Smoke, BridgedStrategyIsADistinctProducer)
 {
     // contracts.md, "The message header": Producer_Strategy = 2 for the canonical C++ strategy process; a strategy
     // needing process isolation is assigned 100 + N from the strategy-instance range.
-    constexpr std::uint32_t kCppStrategyProducer = 2;        // Producer_Strategy
+    constexpr std::uint32_t kCppStrategyProducer     = 2;    // Producer_Strategy
     constexpr std::uint32_t kBridgedStrategyProducer = 100;  // 100 + N (contracts.md, "The message header")
 
     EXPECT_NE(kCppStrategyProducer, kBridgedStrategyProducer)
@@ -1150,10 +1150,10 @@ TEST(P0Smoke, BridgedStrategyIsADistinctProducer)
     // implementation detail behind an IPC seam (contracts.md).
     ReconVerdictMsg cpp_signal{};
     cpp_signal.hdr.producer_id = kCppStrategyProducer;
-    cpp_signal.hdr.msg_type = 72;
+    cpp_signal.hdr.msg_type    = 72;
     ReconVerdictMsg py_signal{};
     py_signal.hdr.producer_id = kBridgedStrategyProducer;
-    py_signal.hdr.msg_type = 72;
+    py_signal.hdr.msg_type    = 72;
     EXPECT_EQ(cpp_signal.hdr.msg_type, py_signal.hdr.msg_type)
         << "the bus must not need to know which language produced a signal";
     EXPECT_NE(cpp_signal.hdr.producer_id, py_signal.hdr.producer_id)
@@ -1167,7 +1167,7 @@ TEST(P0Smoke, NonOwningViewsAreAvailable)
     constexpr std::string_view symbol{"BTCUSDT"};
     EXPECT_EQ(symbol.size(), 7u);
 
-    const std::uint64_t prices[] = {100, 200, 300};
+    const std::uint64_t                  prices[] = {100, 200, 300};
     const std::span<const std::uint64_t> view{prices};
     EXPECT_EQ(view.size(), 3u);
     EXPECT_EQ(view.front(), 100u);
