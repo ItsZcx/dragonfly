@@ -44,3 +44,4 @@ vcpkg_installed/
 # Note: data/ contents are ignored by per-directory .gitignore files.
 
 notes.md
+p1_planning.md
