@@ -45,14 +45,14 @@ mean.
 
 Every message begins with the same 32-byte header. It is never optional and never changes shape.
 
-```
-uint32_t msg_type;      //  0 ..  4   which kind of message
-uint32_t msg_len;       //  4 ..  8   total size of the message, in bytes
-uint32_t producer_id;   //  8 .. 12   which process emitted it
-uint8_t  flags;         // 12 .. 13   provenance bits
+```cpp
+uint32_t msg_type;     //  0 ..  4   which kind of message
+uint32_t msg_len;      //  4 ..  8   total size of the message, in bytes
+uint32_t producer_id;  //  8 .. 12   which process emitted it
+uint8_t  flags;        // 12 .. 13   provenance bits
 // 3 bytes of padding, so ts_ns starts 8-byte aligned
-uint64_t ts_ns;         // 16 .. 24   the producer's monotonic timestamp
-uint64_t seq_num;       // 24 .. 32   per-producer message counter
+uint64_t ts_ns;    // 16 .. 24   the producer's monotonic timestamp
+uint64_t seq_num;  // 24 .. 32   per-producer message counter
 ```
 
 A message's total size is always `32 + body`. This is why the sizes below read as 48, 64, 88, and
@@ -229,8 +229,8 @@ Binary floating point cannot represent decimal fractions exactly, so a system th
 
 **A product of two scaled values must widen to a 128-bit intermediate before dividing.**
 
-```
-notional = MulDiv(qty, price)      // (qty × price) / kScale, in __int128, then narrowed
+```cpp
+notional = MulDiv(qty, price)  // (qty × price) / kScale, in __int128, then narrowed
 ```
 
 Both operands are scaled, so their product is scaled twice. Dividing by `kScale` puts it back.
@@ -369,12 +369,12 @@ These messages describe the market. They are the only thing strategies act on.
 
 #### `TradeMsg` — an executed trade (64 bytes)
 
-```
-uint32_t instrument_id;  // 32..36   canonical instrument id
-uint8_t  aggressor_side; // 36..37   0 = buyer crossed the spread, 1 = seller
-int64_t  price;          // 40..48   fixed-point
-int64_t  qty;            // 48..56   fixed-point
-uint64_t exchange_ts_ns; // 56..64   the venue's timestamp
+```cpp
+uint32_t instrument_id;   // 32..36   canonical instrument id
+uint8_t  aggressor_side;  // 36..37   0 = buyer crossed the spread, 1 = seller
+int64_t  price;           // 40..48   fixed-point
+int64_t  qty;             // 48..56   fixed-point
+uint64_t exchange_ts_ns;  // 56..64   the venue's timestamp
 ```
 
 Three bytes of padding follow `aggressor_side`, so that `price` starts 8-byte aligned.
@@ -384,13 +384,13 @@ identifies the taker: the side that initiated the trade, as opposed to the side 
 
 #### `QuoteMsg` — best bid and offer (80 bytes)
 
-```
-uint32_t instrument_id;  // 32..36
-int64_t  bid_px;         // 40..48
-int64_t  bid_qty;        // 48..56
-int64_t  ask_px;         // 56..64
-int64_t  ask_qty;        // 64..72
-uint64_t exchange_ts_ns; // 72..80
+```cpp
+uint32_t instrument_id;   // 32..36
+int64_t  bid_px;          // 40..48
+int64_t  bid_qty;         // 48..56
+int64_t  ask_px;          // 56..64
+int64_t  ask_qty;         // 64..72
+uint64_t exchange_ts_ns;  // 72..80
 ```
 
 This is the top of the book only. Size accompanies price because a bid without size is
@@ -398,24 +398,24 @@ misleading. A price with nothing behind it is not the same opportunity as one wi
 
 #### `BookDeltaMsg` — one price-level change (64 bytes)
 
-```
-uint32_t instrument_id;  // 32..36
-uint8_t  side;           // 36..37   0 = bid side, 1 = ask side
-uint8_t  action;         // 37..38   0 = add, 1 = modify, 2 = delete
-int64_t  price_level;    // 40..48
-int64_t  qty;            // 48..56   new size at the level (0 on delete)
-uint64_t exchange_ts_ns; // 56..64
+```cpp
+uint32_t instrument_id;   // 32..36
+uint8_t  side;            // 36..37   0 = bid side, 1 = ask side
+uint8_t  action;          // 37..38   0 = add, 1 = modify, 2 = delete
+int64_t  price_level;     // 40..48
+int64_t  qty;             // 48..56   new size at the level (0 on delete)
+uint64_t exchange_ts_ns;  // 56..64
 ```
 
 #### `BookSnapshotMsg` — a full book (2096 bytes)
 
-```
-uint32_t instrument_id;  //   32..36
-uint16_t bid_levels;     //   36..38   how many of the 64 are populated
-uint16_t ask_levels;     //   38..40
-uint64_t exchange_ts_ns; //   40..48
-Level    bids[64];       //   48..1072   { int64_t px; int64_t qty; } best first
-Level    asks[64];       // 1072..2096   best first
+```cpp
+uint32_t instrument_id;   //   32..36
+uint16_t bid_levels;      //   36..38   how many of the 64 are populated
+uint16_t ask_levels;      //   38..40
+uint64_t exchange_ts_ns;  //   40..48
+Level    bids[64];        //   48..1072   { int64_t px; int64_t qty; } best first
+Level    asks[64];        // 1072..2096   best first
 ```
 
 A feed handler sends this on connect and on resync, never per tick. It is the largest message in
@@ -441,7 +441,7 @@ layout of any logged snapshots.
 
 #### `BookSnapshotRequestMsg` — request a fresh book (48 bytes)
 
-```
+```cpp
 uint32_t instrument_id;  // 32..36
 uint64_t after_seq_num;  // 40..48   the snapshot must be at least this fresh
 ```
@@ -461,7 +461,7 @@ services them on an off-path thread rather than the ingest thread.
 
 #### `AlphaSignalMsg` — trading intent (80 bytes)
 
-```
+```cpp
 uint64_t signal_id;      // 32..40   unique system-wide
 uint32_t strategy_id;    // 40..44
 uint32_t instrument_id;  // 44..48   canonical id
@@ -492,11 +492,11 @@ P&L. Its top 16 bits are the `strategy_id`, so the two fields are redundant by c
 
 #### `RiskRejectMsg` — a refused signal (56 bytes)
 
-```
-uint64_t signal_id;      // 32..40
-uint32_t instrument_id;  // 40..44
-uint16_t reason;         // 44..46   RiskRejectReason
-uint64_t rejected_ts_ns; // 48..56
+```cpp
+uint64_t signal_id;       // 32..40
+uint32_t instrument_id;   // 40..44
+uint16_t reason;          // 44..46   RiskRejectReason
+uint64_t rejected_ts_ns;  // 48..56
 ```
 
 Two bytes of padding follow `reason`.
@@ -515,7 +515,7 @@ step 0, because 0 is the sentinel. Read the mapping from the table rather than i
 
 #### `NewOrderMsg` — an approved order (88 bytes)
 
-```
+```cpp
 uint64_t client_order_id;  // 32..40   our id, unique system-wide
 uint64_t signal_id;        // 40..48   backlink to the originating signal
 uint32_t strategy_id;      // 48..52
@@ -553,7 +553,7 @@ at the next fill instead. Its true cash impact is unknown until the venue fills 
 
 #### `CancelOrderMsg` — a cancel request (56 bytes)
 
-```
+```cpp
 uint64_t client_order_id;  // 32..40
 uint32_t instrument_id;    // 40..44
 uint32_t venue_id;         // 44..48   0 = any
@@ -571,7 +571,7 @@ including a cancel the venue rejects because the order is already gone.
 
 #### `ReplaceOrderMsg` — an amendment (72 bytes)
 
-```
+```cpp
 uint64_t client_order_id;  // 32..40   UNCHANGED, the id of the order being amended
 uint32_t instrument_id;    // 40..44
 uint32_t venue_id;         // 44..48   0 = any
@@ -606,7 +606,7 @@ path by which a replace can raise exposure, so L4 (OMS) checks it against availa
 
 #### `ExecutionReportMsg` — what happened at the venue (104 bytes)
 
-```
+```cpp
 uint64_t client_order_id;    //  32..40   our order id
 uint64_t exchange_order_id;  //  40..48   the venue's order id
 uint32_t instrument_id;      //  48..52
@@ -651,7 +651,7 @@ was reported or modelled is not here. It is `kMsgFlagModelledFill` on the header
 
 #### `HeartbeatMsg` — liveness and identity (48 bytes)
 
-```
+```cpp
 uint8_t  state;          // 32..33   0=boot, 1=ready, 2=trading, 3=halted, 4=error
 uint32_t ref_data_hash;  // 36..40   hash of the reference data this process loaded
 uint64_t beat_ts_ns;     // 40..48
@@ -672,9 +672,9 @@ trading gate exactly as an inconclusive reconciliation does.
 
 #### `KillSwitchMsg` — an authoritative command (48 bytes)
 
-```
-uint8_t  command;        // 32..33   0=halt, 1=cancel all, 2=flatten, 3=resume
-uint64_t issued_ts_ns;   // 40..48
+```cpp
+uint8_t  command;       // 32..33   0=halt, 1=cancel all, 2=flatten, 3=resume
+uint64_t issued_ts_ns;  // 40..48
 ```
 
 Seven bytes of padding follow `command`.
@@ -704,11 +704,11 @@ cold, off-path, rate-limited transaction, and it gates trading.
 
 #### `ReconRequestMsg` — begin a pass (56 bytes)
 
-```
-uint64_t recon_id;        // 32..40   correlates this pass's results and verdicts
-uint32_t venue_id;        // 40..44   0 = every venue this system trades
-uint8_t  trigger;         // 44..45   0=startup, 1=operator
-uint64_t requested_ts_ns; // 48..56
+```cpp
+uint64_t recon_id;         // 32..40   correlates this pass's results and verdicts
+uint32_t venue_id;         // 40..44   0 = every venue this system trades
+uint8_t  trigger;          // 44..45   0=startup, 1=operator
+uint64_t requested_ts_ns;  // 48..56
 ```
 
 Three bytes of padding follow `trigger`.
@@ -720,18 +720,18 @@ behaviour.
 
 #### `ReconResultMsg` — the venue's claim about one instrument (600 bytes)
 
-```
-uint64_t recon_id;            //  32..40
-uint32_t venue_id;            //  40..44
-uint32_t instrument_id;       //  44..48   canonical id
-int64_t  venue_net_qty;       //  48..56   the venue's position
-int64_t  venue_avg_px;        //  56..64   the venue's average cost
-uint32_t venue_open_orders;   //  64..68   the venue's total open-order count
-uint32_t venue_fill_count;    //  68..72   cumulative fills on this instrument
-uint8_t  status;              //  72..73   0=unknown, 1=ok, 2=rate limited, 3=unavailable
-uint32_t venue_order_count;   //  76..80   ids present below
-uint64_t venue_order_ids[64]; //  80..592  our client_order_ids the venue reports as open
-uint64_t venue_ts_ns;         // 592..600
+```cpp
+uint64_t recon_id;             //  32..40
+uint32_t venue_id;             //  40..44
+uint32_t instrument_id;        //  44..48   canonical id
+int64_t  venue_net_qty;        //  48..56   the venue's position
+int64_t  venue_avg_px;         //  56..64   the venue's average cost
+uint32_t venue_open_orders;    //  64..68   the venue's total open-order count
+uint32_t venue_fill_count;     //  68..72   cumulative fills on this instrument
+uint8_t  status;               //  72..73   0=unknown, 1=ok, 2=rate limited, 3=unavailable
+uint32_t venue_order_count;    //  76..80   ids present below
+uint64_t venue_order_ids[64];  //  80..592  our client_order_ids the venue reports as open
+uint64_t venue_ts_ns;          // 592..600
 ```
 
 Three bytes of padding follow `status`.
@@ -766,7 +766,7 @@ quantity and the wrong basis, which is a real P&L fault.
 
 #### `ReconVerdictMsg` — the comparison's outcome (72 bytes)
 
-```
+```cpp
 uint64_t recon_id;        // 32..40
 uint32_t venue_id;        // 40..44
 uint32_t instrument_id;   // 44..48
@@ -827,12 +827,12 @@ delivery is detectable.
 
 #### `OrderAbandonedMsg` (64 bytes)
 
-```
-uint64_t adjustment_id;   // 32..40   monotonic per producer
-uint64_t client_order_id; // 40..48   the order being abandoned
-uint32_t instrument_id;   // 48..52
-uint32_t venue_id;        // 52..56   0 if it never reached a venue
-uint64_t applied_ts_ns;   // 56..64
+```cpp
+uint64_t adjustment_id;    // 32..40   monotonic per producer
+uint64_t client_order_id;  // 40..48   the order being abandoned
+uint32_t instrument_id;    // 48..52
+uint32_t venue_id;         // 52..56   0 if it never reached a venue
+uint64_t applied_ts_ns;    // 56..64
 ```
 
 L4 emits this when the sweep times out, or when reconciliation finds an order the venue does not
@@ -840,24 +840,24 @@ have. It releases the order's reservation.
 
 #### `PositionAdoptedMsg` (72 bytes)
 
-```
-uint64_t adjustment_id;   // 32..40
-uint64_t recon_id;        // 40..48   the reconciliation pass that caused it
-uint32_t instrument_id;   // 48..52
-uint32_t venue_id;        // 52..56
-int64_t  new_net_qty;     // 56..64   the adopted position
-uint64_t applied_ts_ns;   // 64..72
+```cpp
+uint64_t adjustment_id;  // 32..40
+uint64_t recon_id;       // 40..48   the reconciliation pass that caused it
+uint32_t instrument_id;  // 48..52
+uint32_t venue_id;       // 52..56
+int64_t  new_net_qty;    // 56..64   the adopted position
+uint64_t applied_ts_ns;  // 64..72
 ```
 
 #### `BasisAdoptedMsg` (72 bytes)
 
-```
-uint64_t adjustment_id;   // 32..40
-uint64_t recon_id;        // 40..48
-uint32_t instrument_id;   // 48..52
-uint32_t venue_id;        // 52..56
-int64_t  new_avg_entry;   // 56..64   the adopted cost basis
-uint64_t applied_ts_ns;   // 64..72
+```cpp
+uint64_t adjustment_id;  // 32..40
+uint64_t recon_id;       // 40..48
+uint32_t instrument_id;  // 48..52
+uint32_t venue_id;       // 52..56
+int64_t  new_avg_entry;  // 56..64   the adopted cost basis
+uint64_t applied_ts_ns;  // 64..72
 ```
 
 Three messages replace one message with a discriminator so that every field is meaningful in
@@ -874,20 +874,47 @@ These are the enumerations that appear in message bodies. Each one's underlying 
 width of the field that carries it, so the values can be read directly from the bytes.
 
 ```cpp
-enum class Side : uint8_t        { Buy = 0, Sell = 1 };
-enum class OrderType : uint8_t   { Limit = 0, Market = 1 };
-enum class TimeInForce : uint8_t { GTC = 0, IOC = 1, FOK = 2 };
-
-enum class OrderStatus : uint8_t {
-    New = 0, Partial = 1, Filled = 2, Cancelled = 3, Rejected = 4,
+enum class Side : uint8_t
+{
+    Buy  = 0,
+    Sell = 1
+};
+enum class OrderType : uint8_t
+{
+    Limit  = 0,
+    Market = 1
+};
+enum class TimeInForce : uint8_t
+{
+    GTC = 0,
+    IOC = 1,
+    FOK = 2
 };
 
-enum class ProcessState : uint8_t {
-    Boot = 0, Ready = 1, Trading = 2, Halted = 3, Error = 4,
+enum class OrderStatus : uint8_t
+{
+    New       = 0,
+    Partial   = 1,
+    Filled    = 2,
+    Cancelled = 3,
+    Rejected  = 4,
 };
 
-enum class KillCommand : uint8_t {
-    Halt = 0, CancelAll = 1, Flatten = 2, Resume = 3,
+enum class ProcessState : uint8_t
+{
+    Boot    = 0,
+    Ready   = 1,
+    Trading = 2,
+    Halted  = 3,
+    Error   = 4,
+};
+
+enum class KillCommand : uint8_t
+{
+    Halt      = 0,
+    CancelAll = 1,
+    Flatten   = 2,
+    Resume    = 3,
 };
 ```
 
@@ -899,25 +926,42 @@ enum class KillCommand : uint8_t {
 // recon_id, so a zeroed message is normally discarded before its outcome is read. If that
 // correlation stays airtight, this value is redundant, and it could be dropped. It is kept
 // because it costs one enumerator and it guards the value that opens the trading gate.
-enum class ReconOutcome : uint8_t { Unknown = 0, Matched = 1, Mismatch = 2, Inconclusive = 3 };
+enum class ReconOutcome : uint8_t
+{
+    Unknown      = 0,
+    Matched      = 1,
+    Mismatch     = 2,
+    Inconclusive = 3
+};
 
-enum class ReconMismatch : uint8_t {
-    None = 0,
+enum class ReconMismatch : uint8_t
+{
+    None              = 0,
     PositionLocalOnly = 1,
     PositionVenueOnly = 2,
-    OrderLocalOnly = 3,
-    OrderVenueOnly = 4,
-    BasisDelta = 5,
-    FillCountDelta = 6,
+    OrderLocalOnly    = 3,
+    OrderVenueOnly    = 4,
+    BasisDelta        = 5,
+    FillCountDelta    = 6,
 };
 
 // Unknown is not a venue answer. Zero-initialization must not read as Ok. The reserved zero is
 // the same defense in depth as on ReconOutcome, and it is redundant for the same reason.
-enum class ReconStatus : uint8_t { Unknown = 0, Ok = 1, RateLimited = 2, VenueUnavailable = 3 };
+enum class ReconStatus : uint8_t
+{
+    Unknown          = 0,
+    Ok               = 1,
+    RateLimited      = 2,
+    VenueUnavailable = 3
+};
 
 // Which side started a pass. Affects reporting, not behaviour: both triggers run
 // the same code path.
-enum class ReconTrigger : uint8_t { Startup = 0, Operator = 1 };
+enum class ReconTrigger : uint8_t
+{
+    Startup  = 0,
+    Operator = 1
+};
 ```
 
 The six `ReconMismatch` values, their causes, and their resolutions are in the
@@ -933,8 +977,9 @@ that as inconclusive, the same as a rate limit.
 reconciliation messages.
 
 ```cpp
-enum class VenueId : uint32_t {
-    Any = 0,        // no preference: whichever gateway receives the order claims it
+enum class VenueId : uint32_t
+{
+    Any = 0,  // no preference: whichever gateway receives the order claims it
     // 1 to 99 are reserved. A stale config or a truncated read must not resolve
     // to a live venue.
     Binance = 100,  // convenience alias. The authority is config/gateways/binance.yaml
@@ -953,7 +998,8 @@ whose adapter did not exist at compile time takes the next free number, and no C
 `RiskRejectReason` is a `uint16_t`, matching the `reason` field width in `RiskRejectMsg`.
 
 ```cpp
-enum class RiskRejectReason : uint16_t {
+enum class RiskRejectReason : uint16_t
+{
     // Sentinel. No pipeline check maps to 0, so a zero-initialized or truncated
     // RiskRejectMsg can never be read as a real verdict.
     None = 0,
