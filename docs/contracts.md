@@ -870,8 +870,10 @@ said so.
 
 ## Shared vocabulary
 
-These are the enumerations that appear in message bodies. Each one's underlying type matches the
-width of the field that carries it, so the values can be read directly from the bytes.
+These are the fixed sets of values that messages carry. Each one's underlying type matches the
+width of the field that carries it, so the values can be read directly from the bytes. `VenueId`
+is an id with named values rather than one of these sets, so it is defined under
+[Venue identity](#venue-identity).
 
 ```cpp
 enum class Side : uint8_t
