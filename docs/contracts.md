@@ -104,8 +104,8 @@ travels on `signals`, and the document places both in the signals family.
 **Code 0 is reserved and is never a message.** A message is value-initialized as `T m{}` before
 its fields are written, which sets `msg_type` to zero (see "Every message is value-initialized
 before use"). A zeroed buffer, a truncated read, or a slot that was never written would otherwise
-decode as a real message of whatever type zero names. `RiskRejectReason`, `VenueId`, and
-`ReconMismatch` reserve zero for the same reason.
+decode as a real message of whatever type zero names. `RiskRejectReason`, `VenueId`,
+`ReconMismatch`, `ReconOutcome`, and `ReconStatus` reserve zero for the same reason.
 
 A consumer switches on the tag, because a channel is a transport and not a type. Five of the eight
 channels carry more than one body, and several processes write to `md` and `control`. The audit
@@ -728,9 +728,9 @@ int64_t  venue_net_qty;       //  48..56   the venue's position
 int64_t  venue_avg_px;        //  56..64   the venue's average cost
 uint32_t venue_open_orders;   //  64..68   the venue's total open-order count
 uint32_t venue_fill_count;    //  68..72   cumulative fills on this instrument
-uint8_t  status;              //  72..73   0=ok, 1=rate limited, 2=unavailable
+uint8_t  status;              //  72..73   0=unknown, 1=ok, 2=rate limited, 3=unavailable
 uint32_t venue_order_count;   //  76..80   ids present below
-uint64_t venue_order_ids[64]; //  80..592  the venue's open-order ids, as we know them
+uint64_t venue_order_ids[64]; //  80..592  our client_order_ids the venue reports as open
 uint64_t venue_ts_ns;         // 592..600
 ```
 
@@ -760,7 +760,9 @@ quantity and the wrong basis, which is a real P&L fault.
   **truncated** and the instrument is inconclusive, never matched.
 - `status` says whether the venue's answer is complete. **"No answer" is not "no disagreement".**
   Rate-limiting and unavailability both make the instrument inconclusive, which blocks trading
-  exactly like a mismatch.
+  exactly like a mismatch. `Unknown` is not one of the venue's answers. It means the field was
+  never written, which is a bug or a truncated read. It is distinct from `RateLimited` and
+  `VenueUnavailable`, where the venue did answer. Every value except `Ok` keeps the gate closed.
 
 #### `ReconVerdictMsg` — the comparison's outcome (72 bytes)
 
@@ -770,7 +772,7 @@ uint32_t venue_id;        // 40..44
 uint32_t instrument_id;   // 44..48
 int64_t  qty_delta;       // 48..56   local minus venue
 uint32_t order_delta;     // 56..60   local minus venue
-uint8_t  outcome;         // 60..61   0=matched, 1=mismatch, 2=inconclusive
+uint8_t  outcome;         // 60..61   0=unknown, 1=matched, 2=mismatch, 3=inconclusive
 uint8_t  mismatch_class;  // 61..62
 uint64_t finalize_ts_ns;  // 64..72
 ```
@@ -792,10 +794,15 @@ operator gets.
 
 The gate: an instrument counts as matched only if an explicit `ok` result arrived and the
 comparison agreed. A fully matched pass reopens trading automatically. Anything else, which is a
-mismatch, an inconclusive result, a truncated claim, or a config skew, closes the gate and waits
-for a human. The human resolves the classes above and then triggers a fresh pass to prove the fix
-landed. Clearing the gate on the strength of an edited ledger, without re-asking the venue, would
-trust the state that was just shown to be wrong.
+mismatch, an inconclusive result, an unknown outcome, a truncated claim, or a config skew, closes
+the gate and waits for a human. The human resolves the classes above and then triggers a fresh
+pass to prove the fix landed. Clearing the gate on the strength of an edited ledger, without
+re-asking the venue, would trust the state that was just shown to be wrong.
+
+`Unknown` is not a verdict. It means no verdict was produced, because the field was never written,
+which is a bug or a truncated read. It is distinct from `Inconclusive`, which means the comparison
+ran and could not decide. Both keep the gate closed, and the two need different responses:
+`Inconclusive` is a normal operational outcome, and `Unknown` is always a defect.
 
 ### Ledger adjustments — L4 (OMS) to the recorder and L6
 
@@ -887,8 +894,12 @@ enum class KillCommand : uint8_t {
 ### Reconciliation
 
 ```cpp
-// Only Mismatch and Inconclusive keep the trading gate closed.
-enum class ReconOutcome : uint8_t { Matched = 0, Mismatch = 1, Inconclusive = 2 };
+// Only Matched opens the trading gate. Unknown, Mismatch, and Inconclusive keep it closed.
+// Reserving zero is defense in depth: reconciliation correlates results and verdicts by
+// recon_id, so a zeroed message is normally discarded before its outcome is read. If that
+// correlation stays airtight, this value is redundant, and it could be dropped. It is kept
+// because it costs one enumerator and it guards the value that opens the trading gate.
+enum class ReconOutcome : uint8_t { Unknown = 0, Matched = 1, Mismatch = 2, Inconclusive = 3 };
 
 enum class ReconMismatch : uint8_t {
     None = 0,
@@ -900,7 +911,9 @@ enum class ReconMismatch : uint8_t {
     FillCountDelta = 6,
 };
 
-enum class ReconStatus : uint8_t { Ok = 0, RateLimited = 1, VenueUnavailable = 2 };
+// Unknown is not a venue answer. Zero-initialization must not read as Ok. The reserved zero is
+// the same defense in depth as on ReconOutcome, and it is redundant for the same reason.
+enum class ReconStatus : uint8_t { Unknown = 0, Ok = 1, RateLimited = 2, VenueUnavailable = 3 };
 
 // Which side started a pass. Affects reporting, not behaviour: both triggers run
 // the same code path.
