@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <cstring>
 #include <df/msg/header.hpp>
+#include <df/msg/market_data.hpp>
 #include <span>
 #include <string_view>
 #include <type_traits>
@@ -27,6 +28,7 @@ namespace
 // The real message header (contracts.md, "The message header") and the flag bit
 // it carries. No local copy: header.hpp asserts the layout, and this file only
 // consumes it.
+using df::msg::BookSnapshotRequestMsg;
 using df::msg::kMsgFlagModelledFill;
 using df::msg::MsgHeader;
 
@@ -48,17 +50,6 @@ struct LogEntryHeader
     LogEntryType  entry_type;  //  4 ..  6
     std::uint16_t pad;         //  6 ..  8  always zero (contracts.md, "Every message is value-initialized before use")
     std::uint64_t recv_ts_ns;  //  8 .. 16  the recorder's own clock, when it received it
-};
-
-// Mirrors BookSnapshotRequestMsg (contracts.md, `BookSnapshotRequestMsg`). The one consumer-to-producer
-// message in the system, carried on `control` because that is already the channel
-// every process both publishes and subscribes to.
-struct BookSnapshotRequestMsg
-{
-    MsgHeader     hdr;            //  0 .. 32
-    std::uint32_t instrument_id;  // 32 .. 36
-    std::uint32_t requester_id;   // 36 .. 40  explicit, not inferred from hdr
-    std::uint64_t after_seq_num;  // 40 .. 48  snapshot must be at least this fresh
 };
 
 // Mirrors KillCommand (contracts.md, `KillSwitchMsg`). The message is a broadcast COMMAND, not a
@@ -1009,14 +1000,13 @@ TEST(P0Smoke, FeedHandlerHasAnInboundPortForResync)
     EXPECT_EQ(kMdIsBroadcastToAllConsumers, 1)
         << "one publish must satisfy every consumer (contracts.md, `BookSnapshotRequestMsg`)";
 
-    // The request message carries an explicit requester_id rather than inferring
-    // it from hdr.producer_id, so a handler can log who asked when several
-    // consumers share one feed (contracts.md, `BookSnapshotRequestMsg`).
+    // The requester is named by hdr.producer_id. There is no separate requester
+    // field, because the header already carries who sent it (contracts.md,
+    // `BookSnapshotRequestMsg`).
     BookSnapshotRequestMsg req{};
-    req.hdr.producer_id = 2;  // the requester's identity on the wire...
-    req.requester_id    = 2;  // ...also carried explicitly, so a handler can log who asked
-    EXPECT_EQ(req.requester_id, req.hdr.producer_id);
-    EXPECT_EQ(sizeof(BookSnapshotRequestMsg), 48u);
+    req.hdr.producer_id = 2;
+    EXPECT_EQ(req.hdr.producer_id, 2u) << "the sender is the header's producer_id";
+    EXPECT_EQ(sizeof(BookSnapshotRequestMsg), 48u) << "two fields and four bytes of padding";
 
     // The request must be serviced OFF the pinned ingest thread (overview.md, "What is on the hot path"): that thread
     // may take no lock and touch no book state shared with the per-tick path, and
@@ -1052,7 +1042,6 @@ TEST(P0Smoke, LogEntryFramingIsSelfDescribing)
     // BookSnapshotRequestMsg layout (contracts.md, `BookSnapshotRequestMsg`), compiler-verified.
     EXPECT_EQ(sizeof(BookSnapshotRequestMsg), 48u);
     EXPECT_EQ(offsetof(BookSnapshotRequestMsg, instrument_id), 32u);
-    EXPECT_EQ(offsetof(BookSnapshotRequestMsg, requester_id), 36u);
     EXPECT_EQ(offsetof(BookSnapshotRequestMsg, after_seq_num), 40u);
 }
 
