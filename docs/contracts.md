@@ -3,7 +3,8 @@
 **Audience:** anyone reading, writing, or debugging a message, and anyone implementing a layer.
 
 This is the authoritative description of the wire format. Every field here is pinned by a
-`static_assert` in `contracts/`. Where this document and the code disagree, the code wins.
+`static_assert` in the contracts tests, under `tests/unit/contracts/`. Where this document and the
+code disagree, the code wins.
 
 All cross-process communication in Dragonfly is a fixed-size struct. No message contains a
 pointer, a `std::string`, a `std::vector`, or a virtual function. A message is bytes, and a
@@ -277,8 +278,9 @@ than the bytes it saves. If messages ever do cross machines, the encoding at tha
 explicitly little-endian and packed, behind a codec. That case is out of scope here.
 
 Because the compiler defines the layout rather than a person, every message is verified at compile
-time with `sizeof` and `offsetof` assertions. The sizes and offsets in this document exist because
-those assertions exist. They are not maintained by hand.
+time with `sizeof` and `offsetof` assertions. The assertions live in the contracts tests, under
+`tests/unit/contracts/`, so the headers stay declarations. The sizes and offsets in this document
+exist because those assertions exist. They are not maintained by hand.
 
 ### Messages are fixed-size and own nothing
 
@@ -320,9 +322,10 @@ site or broken by a layout change.
 
 Do not add a user-provided constructor. A message type must stay an aggregate, so that `T m{}`
 value-initializes the object and zeroes the padding. A user-provided constructor keeps the type
-trivially copyable and standard layout, so the two `static_assert`s in the header do not catch it,
-but it stops the zeroing and the padding keeps whatever the memory held. Each message header
-asserts `std::is_trivially_default_constructible_v` to turn that change into a build failure.
+trivially copyable and standard layout, so the two `static_assert`s do not catch it, but it stops
+the zeroing and the padding keeps whatever the memory held. The contracts tests assert
+`std::is_trivially_default_constructible_v` for every message type, which turns that change into a
+build failure.
 
 A test checks this. It value-initializes each message type twice, writes identical values, and
 asserts the bytes are equal. That single test catches indeterminate padding, a forgotten field,
