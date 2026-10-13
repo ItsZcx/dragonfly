@@ -13,7 +13,8 @@ if(DF_HAVE_GTEST)
     add_executable(df_contracts_tests
         common_test.cpp
         header_test.cpp
-        market_data_test.cpp)
+        market_data_test.cpp
+        signals_test.cpp)
     target_link_libraries(df_contracts_tests PRIVATE df::contracts GTest::gtest_main)
 
     target_compile_options(df_contracts_tests PRIVATE -Wall -Wextra -Werror -Wpedantic)
