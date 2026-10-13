@@ -131,6 +131,26 @@ rejected because a field reorder would silently invalidate it while still compil
 
 See `contracts.md`, "Every message is value-initialized before use".
 
+## Layout and trait checks live in the contracts tests, not the headers
+
+**Problem.** The wire layout is pinned with `static_assert`: a size, a field offset, and three
+traits (`trivially copyable`, `standard layout`, `trivially default constructible`) for every
+message struct. Written inside the headers, those checks grow with the message set. One header
+carried 56 of them, which buried the declaration the reader came for and made every edit a scroll
+through assertions.
+
+**Decision.** Put the checks in the contracts tests, under `tests/unit/contracts/`, and keep the
+headers declarations only. Each check is a plain `static_assert` with a message that names the type
+or the field. The checks are namespace-scope `static_assert`, so a wrong layout still fails the
+build.
+
+**Consequence.** A header is readable again, and one test file per header keeps each check next to
+the tests for that header, per "Tests mirror the source tree". The cost is that the checks run
+only when the contracts tests build. A build that skips the tests no longer self-checks a header,
+which is accepted because CI always builds them.
+
+See `tests/unit/contracts/`, and `contracts.md`, "Natural alignment, no packing".
+
 ## Timestamps are monotonic, never the CPU cycle counter
 
 **Problem.** Two clocks are available for a message timestamp. The wall clock can jump backwards
