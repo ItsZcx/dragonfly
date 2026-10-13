@@ -17,6 +17,7 @@
 #include <cstring>
 #include <df/msg/header.hpp>
 #include <df/msg/market_data.hpp>
+#include <df/msg/orders.hpp>
 #include <span>
 #include <string_view>
 #include <type_traits>
@@ -31,6 +32,7 @@ namespace
 using df::msg::BookSnapshotRequestMsg;
 using df::msg::kMsgFlagModelledFill;
 using df::msg::MsgHeader;
+using df::msg::ReplaceOrderMsg;
 
 // Mirrors the audit-log entry framing (layers.md, L6 (observability)). Every entry in the log
 // is length-prefixed, and a gap is an explicit entry rather than a hole, so an
@@ -77,22 +79,6 @@ enum class PublishFailurePolicy : std::uint8_t
         1,  // lossy by nature; self-heals via seq_num gap (contracts.md, "Sequence numbers across a restart")
     FailClosed          = 2,  // latch the kill switch rather than drop
     RetryUntilDelivered = 3
-};
-
-// Mirrors ReplaceOrderMsg (contracts.md, `ReplaceOrderMsg`). Added because the Investigation names
-// "Cancel/Replace" as a core order type (Investigation §5) and the design had no replace path.
-// client_order_id is REUSED: a venue cancel/replace is one order with amended terms,
-// and the exchange_order_id does not change. Generating a fresh id would be the
-// cancel+new emulation this message exists to avoid.
-struct ReplaceOrderMsg
-{
-    MsgHeader     hdr;              //  0 .. 32
-    std::uint64_t client_order_id;  // 32 .. 40  UNCHANGED id of the order being amended
-    std::uint32_t instrument_id;    // 40 .. 44
-    std::uint32_t venue_id;         // 44 .. 48  (0 = any)
-    std::int64_t  new_qty;          // 48 .. 56  ABSOLUTE new total quantity, not a delta
-    std::int64_t  new_price;        // 56 .. 64  ABSOLUTE new limit price
-    std::uint64_t sent_ts_ns;       // 64 .. 72
 };
 
 // Mirrors HeartbeatMsg (contracts.md, `HeartbeatMsg`). ref_data_hash makes a heartbeat assert
