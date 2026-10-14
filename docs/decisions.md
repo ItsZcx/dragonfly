@@ -17,6 +17,8 @@ worth keeping. Routine choices are not listed.
 - [The core is venue-agnostic, and venue code lives at the edges](#the-core-is-venue-agnostic-and-venue-code-lives-at-the-edges)
 - [Messages use natural alignment, not packing](#messages-use-natural-alignment-not-packing)
 - [Every message is value-initialized](#every-message-is-value-initialized)
+- [Array fields are `std::array`](#array-fields-are-stdarray)
+- [Layout and trait checks live in the contracts tests, not the headers](#layout-and-trait-checks-live-in-the-contracts-tests-not-the-headers)
 - [Timestamps are monotonic, never the CPU cycle counter](#timestamps-are-monotonic-never-the-cpu-cycle-counter)
 - [A cancel is a request, not a state change](#a-cancel-is-a-request-not-a-state-change)
 - [A replace reuses the order id](#a-replace-reuses-the-order-id)
@@ -30,6 +32,7 @@ worth keeping. Routine choices are not listed.
 - [The audit log is written by its own process](#the-audit-log-is-written-by-its-own-process)
 - [Ledger adjustments are recorded before they are applied](#ledger-adjustments-are-recorded-before-they-are-applied)
 - [The ledger keeps a per-venue position split for flattening](#the-ledger-keeps-a-per-venue-position-split-for-flattening)
+- [Tests mirror the source tree, and the kind is a namespace](#tests-mirror-the-source-tree-and-the-kind-is-a-namespace)
 - [The system runs on one box](#the-system-runs-on-one-box)
 
 </details>
@@ -130,6 +133,21 @@ including padding.
 rejected because a field reorder would silently invalidate it while still compiling.
 
 See `contracts.md`, "Every message is value-initialized before use".
+
+## Array fields are `std::array`
+
+**Problem.** A fixed-length array field can be a C array (`T name[N]`) or a `std::array<T, N>`. Both
+have the same size, layout, and codegen, so the choice is a convention and not a performance
+decision. Leaving it open let `BookSnapshotMsg` use `std::array` while `ReconResultMsg` used a C
+array, against the same documentation notation.
+
+**Decision.** Use `std::array<T, N>` for every array field, and write it that way in the docs.
+
+**Consequence.** The length is part of the type, so one `static_assert` on the field pins it and the
+field carries `.size()`. In exchange, the field declaration is longer, so the layout blocks in
+`contracts.md` are wider.
+
+See `contracts.md`, "Messages are fixed-size and own nothing".
 
 ## Layout and trait checks live in the contracts tests, not the headers
 

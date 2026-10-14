@@ -287,7 +287,8 @@ exist because those assertions exist. They are not maintained by hand.
 A message may not contain a pointer, a `std::string`, a `std::vector`, or a virtual function.
 Anything variable-length would need allocation or indirection, and the hot path permits neither.
 This is why an order book snapshot has a compile-time depth cap: the array must have a size the
-compiler knows.
+compiler knows. Array fields use `std::array`, so the length is part of the type and one
+`static_assert` pins it.
 
 Every message is also *trivially copyable* and *standard layout*. Both are required, and each
 checks a different property.
@@ -413,12 +414,12 @@ uint64_t exchange_ts_ns;  // 56..64
 #### `BookSnapshotMsg` — a full book (2096 bytes)
 
 ```cpp
-uint32_t instrument_id;   //   32..36
-uint16_t bid_levels;      //   36..38   how many of the 64 are populated
-uint16_t ask_levels;      //   38..40
-uint64_t exchange_ts_ns;  //   40..48
-Level    bids[64];        //   48..1072   { int64_t px; int64_t qty; } best first
-Level    asks[64];        // 1072..2096   best first
+uint32_t instrument_id;      //   32..36
+uint16_t bid_levels;         //   36..38   how many of the 64 are populated
+uint16_t ask_levels;         //   38..40
+uint64_t exchange_ts_ns;     //   40..48
+std::array<Level, 64> bids;  //   48..1072   { int64_t px; int64_t qty; } best first
+std::array<Level, 64> asks;  // 1072..2096   best first
 ```
 
 A feed handler sends this on connect and on resync, never per tick. It is the largest message in
@@ -724,17 +725,17 @@ behaviour.
 #### `ReconResultMsg` — the venue's claim about one instrument (600 bytes)
 
 ```cpp
-uint64_t recon_id;             //  32..40
-uint32_t venue_id;             //  40..44
-uint32_t instrument_id;        //  44..48   canonical id
-int64_t  venue_net_qty;        //  48..56   the venue's position
-int64_t  venue_avg_px;         //  56..64   the venue's average cost
-uint32_t venue_open_orders;    //  64..68   the venue's total open-order count
-uint32_t venue_fill_count;     //  68..72   cumulative fills on this instrument
-uint8_t  status;               //  72..73   0=unknown, 1=ok, 2=rate limited, 3=unavailable
-uint32_t venue_order_count;    //  76..80   ids present below
-uint64_t venue_order_ids[64];  //  80..592  our client_order_ids the venue reports as open
-uint64_t venue_ts_ns;          // 592..600
+uint64_t recon_id;                         //  32..40
+uint32_t venue_id;                         //  40..44
+uint32_t instrument_id;                    //  44..48   canonical id
+int64_t  venue_net_qty;                    //  48..56   the venue's position
+int64_t  venue_avg_px;                     //  56..64   the venue's average cost
+uint32_t venue_open_orders;                //  64..68   the venue's total open-order count
+uint32_t venue_fill_count;                 //  68..72   cumulative fills on this instrument
+uint8_t  status;                           //  72..73   0=unknown, 1=ok, 2=rate limited, 3=unavailable
+uint32_t venue_order_count;                //  76..80   ids present below
+std::array<uint64_t, 64> venue_order_ids;  //  80..592  our client_order_ids the venue reports as open
+uint64_t venue_ts_ns;                      // 592..600
 ```
 
 Three bytes of padding follow `status`.
