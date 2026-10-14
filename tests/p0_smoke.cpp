@@ -3,9 +3,10 @@
 // Purpose: prove the toolchain end to end — Clang, C++20, CMake, Ninja,
 // GoogleTest, and CTest all work — before any real code exists.
 //
-// It also verifies the language features and layout conventions the design
-// depends on (contracts.md), so a toolchain regression is caught now rather
-// than discovered in P1.
+// It also pre-verifies the design rules whose phases have no code yet, so a
+// contradiction between the docs and the plan is caught early. Each test retires
+// as its phase lands a real test: the message layouts it used to check now live
+// in tests/unit/contracts/.
 //
 // Layer legend (overview.md, "The channels"): L1 = ingestion (feed handler), L2 = strategy,
 // L3 = risk (firewall), L4 = OMS (ledger), L5 = EMS (execution), L6 = observability.
@@ -24,22 +25,18 @@
 #include <df/msg/reconciliation.hpp>
 #include <span>
 #include <string_view>
-#include <type_traits>
 #include <vector>
 
 namespace
 {
 
-// The real message header (contracts.md, "The message header") and the flag bit
-// it carries. No local copy: header.hpp asserts the layout, and this file only
-// consumes it.
+// Real contract types (contracts.md). No local copies: the contracts tests
+// assert every size, offset, and trait, and this file only consumes them.
 using df::msg::BasisAdoptedMsg;
 using df::msg::BookSnapshotRequestMsg;
 using df::msg::HeartbeatMsg;
 using df::msg::KillCommand;
-using df::msg::kMsgFlagModelledFill;
 using df::msg::kVenueOrderClaimMax;
-using df::msg::MsgHeader;
 using df::msg::OrderAbandonedMsg;
 using df::msg::PositionAdoptedMsg;
 using df::msg::ReconRequestMsg;
@@ -117,64 +114,6 @@ TEST(P0Smoke, Cxx20IsActive)
 #endif
 }
 
-// ---- Contracts rely on these properties (contracts.md) --------------------
-
-TEST(P0Smoke, MsgHeaderIsStandardLayoutAndTriviallyCopyable)
-{
-    // These two traits are what make pointer-casting over a raw byte buffer
-    // safe. If either fails, the zero-copy message design is invalid.
-    static_assert(std::is_standard_layout_v<MsgHeader>);
-    static_assert(std::is_trivially_copyable_v<MsgHeader>);
-    SUCCEED();
-}
-
-TEST(P0Smoke, MsgHeaderLayoutMatchesSpec)
-{
-    // The header is specified as 32 bytes in contracts.md, "The message header".
-    static_assert(sizeof(MsgHeader) == 32, "MsgHeader layout changed — update contracts.md");
-    static_assert(offsetof(MsgHeader, msg_type) == 0);
-    static_assert(offsetof(MsgHeader, msg_len) == 4);
-    static_assert(offsetof(MsgHeader, producer_id) == 8);
-    // `flags` occupies the byte at 12, and three bytes of padding follow it so that
-    // `ts_ns` is 8-byte aligned. This is what proves the header did not grow.
-    static_assert(offsetof(MsgHeader, flags) == 12, "flags must be at offset 12");
-    static_assert(offsetof(MsgHeader, ts_ns) == 16, "padding before ts_ns must keep it 8-aligned");
-    static_assert(offsetof(MsgHeader, seq_num) == 24);
-
-    // The flag bitmask must round-trip through a byte-sized field.
-    static_assert(sizeof(kMsgFlagModelledFill) == 1, "the flag must fit the header's flags byte");
-    static_assert(kMsgFlagModelledFill == 1, "bit 0 is the modelled-fill bit");
-    SUCCEED();
-}
-
-// ---- Reconciliation messages (contracts.md, "Reconciliation") ------------------------------
-
-TEST(P0Smoke, ReconMessagesMatchSpec)
-{
-    static_assert(sizeof(ReconRequestMsg) == 56, "ReconRequestMsg layout changed — update contracts.md");
-    static_assert(sizeof(ReconResultMsg) == 600, "ReconResultMsg layout changed — update contracts.md");
-    static_assert(sizeof(ReconVerdictMsg) == 72, "ReconVerdictMsg layout changed — update contracts.md");
-
-    // Offsets are asserted, not merely sizes: two compensating field changes can
-    // keep sizeof identical while moving a field a consumer reads by offset.
-    static_assert(offsetof(ReconRequestMsg, recon_id) == 32);
-    static_assert(offsetof(ReconRequestMsg, trigger) == 44);
-    static_assert(offsetof(ReconRequestMsg, requested_ts_ns) == 48, "padding before requested_ts_ns");
-
-    static_assert(offsetof(ReconResultMsg, venue_avg_px) == 56, "padding before venue_avg_px");
-    static_assert(offsetof(ReconResultMsg, venue_fill_count) == 68);
-    static_assert(offsetof(ReconResultMsg, status) == 72);
-    static_assert(offsetof(ReconResultMsg, venue_order_count) == 76, "padding before venue_order_count");
-    static_assert(offsetof(ReconResultMsg, venue_order_ids) == 80, "ids must start 8-aligned");
-    static_assert(offsetof(ReconResultMsg, venue_ts_ns) == 592, "padding before venue_ts_ns");
-
-    static_assert(offsetof(ReconVerdictMsg, qty_delta) == 48);
-    static_assert(offsetof(ReconVerdictMsg, mismatch_class) == 61);
-    static_assert(offsetof(ReconVerdictMsg, finalize_ts_ns) == 64, "padding before finalize_ts_ns");
-
-    SUCCEED();
-}
-
 // ---- Reconciliation compares order IDENTITY, not a count (contracts.md, "Reconciliation") ----
 
 TEST(P0Smoke, ReconciliationComparesOrderIdentityNotCount)
@@ -227,7 +166,6 @@ TEST(P0Smoke, ReconciliationComparesOrderIdentityNotCount)
     // protects. It must stay above the reference max_open_orders ceiling (50).
     constexpr std::uint32_t kReferenceMaxOpenOrders = 50;
     EXPECT_GT(kVenueOrderClaimMax, kReferenceMaxOpenOrders);
-    EXPECT_EQ(r.venue_order_ids.size(), kVenueOrderClaimMax);
 }
 
 // ---- Ledger adjustments: the non-stream state changes (contracts.md, "Ledger adjustments") ----
@@ -240,28 +178,6 @@ TEST(P0Smoke, LedgerAdjustmentsAreRecordedAndIdempotent)
     // contracts.md, "Ledger adjustments" there was no carrier for either — OrderStatus has no `Abandoned`, and
     // the recorder's coverage excluded L4's journal. layers.md, L4 (OMS) could only *assert*
     // "recorded as an explicit event"; nothing recorded it.
-    EXPECT_EQ(sizeof(OrderAbandonedMsg), 64u);
-    EXPECT_EQ(offsetof(OrderAbandonedMsg, adjustment_id), 32u);
-    EXPECT_EQ(offsetof(OrderAbandonedMsg, client_order_id), 40u);
-    EXPECT_EQ(offsetof(OrderAbandonedMsg, instrument_id), 48u);
-    EXPECT_EQ(offsetof(OrderAbandonedMsg, venue_id), 52u);
-    EXPECT_EQ(offsetof(OrderAbandonedMsg, applied_ts_ns), 56u);
-
-    EXPECT_EQ(sizeof(PositionAdoptedMsg), 72u);
-    EXPECT_EQ(offsetof(PositionAdoptedMsg, adjustment_id), 32u);
-    EXPECT_EQ(offsetof(PositionAdoptedMsg, recon_id), 40u);
-    EXPECT_EQ(offsetof(PositionAdoptedMsg, instrument_id), 48u);
-    EXPECT_EQ(offsetof(PositionAdoptedMsg, venue_id), 52u);
-    EXPECT_EQ(offsetof(PositionAdoptedMsg, new_net_qty), 56u);
-    EXPECT_EQ(offsetof(PositionAdoptedMsg, applied_ts_ns), 64u);
-
-    EXPECT_EQ(sizeof(BasisAdoptedMsg), 72u);
-    EXPECT_EQ(offsetof(BasisAdoptedMsg, adjustment_id), 32u);
-    EXPECT_EQ(offsetof(BasisAdoptedMsg, recon_id), 40u);
-    EXPECT_EQ(offsetof(BasisAdoptedMsg, instrument_id), 48u);
-    EXPECT_EQ(offsetof(BasisAdoptedMsg, venue_id), 52u);
-    EXPECT_EQ(offsetof(BasisAdoptedMsg, new_avg_entry), 56u);
-    EXPECT_EQ(offsetof(BasisAdoptedMsg, applied_ts_ns), 64u);
 
     // Write-ahead ordering (contracts.md, "Publication failure is per-channel"): the adjustment is logged BEFORE it is applied.
     // If the `ledger` publish fails, live state must not change. Modelled as a
@@ -306,68 +222,6 @@ TEST(P0Smoke, LedgerAdjustmentsAreRecordedAndIdempotent)
     EXPECT_FALSE(abandoned.adjustment_id > last_applied) << "a replay must skip a non-advancing adjustment";
     abandoned.adjustment_id = 8;
     EXPECT_TRUE(abandoned.adjustment_id > last_applied);
-}
-
-// ---- Padding must be zero (contracts.md, "Every message is value-initialized before use") --------------------------------
-
-TEST(P0Smoke, ValueInitZeroesPadding)
-{
-    // contracts.md, "Every message is value-initialized before use": every message is value-initialized (`T m{}`) before its fields are
-    // written. This is what makes the audit log byte-reproducible and `memcmp`-based
-    // comparison sound. Two value-initialized messages with identical field values
-    // must be byte-for-byte identical, padding included.
-    ReconResultMsg a{};
-    ReconResultMsg b{};
-    for (auto* m : {&a, &b})
-    {
-        m->hdr.msg_type       = 71;
-        m->hdr.flags          = 0;
-        m->recon_id           = 42;
-        m->venue_id           = 100;
-        m->instrument_id      = 1001;
-        m->venue_net_qty      = 1'000'000'000;
-        m->venue_avg_px       = 100'000'000'000;
-        m->venue_open_orders  = 3;
-        m->venue_fill_count   = 17;
-        m->status             = 0;
-        m->venue_order_count  = 3;
-        m->venue_order_ids[0] = 0x0005000000000001ull;
-        m->venue_order_ids[1] = 0x0005000000000002ull;
-        m->venue_order_ids[2] = 0x0005000000000003ull;
-        m->venue_ts_ns        = 123456789;
-    }
-    EXPECT_EQ(std::memcmp(&a, &b, sizeof(a)), 0) << "padding is not zero — see contracts.md";
-
-    // Two other message types, to catch a struct whose gaps differ from
-    // ReconResultMsg's. Cheap, and the assertion is the same one.
-    ReconRequestMsg r1{};
-    ReconRequestMsg r2{};
-    for (auto* m : {&r1, &r2})
-    {
-        m->hdr.msg_type    = 70;
-        m->recon_id        = 7;
-        m->venue_id        = 100;
-        m->trigger         = 0;
-        m->requested_ts_ns = 99;
-    }
-    EXPECT_EQ(std::memcmp(&r1, &r2, sizeof(r1)), 0) << "padding is not zero — see contracts.md";
-
-    ReconVerdictMsg v1{};
-    ReconVerdictMsg v2{};
-    for (auto* m : {&v1, &v2})
-    {
-        m->hdr.msg_type   = 72;
-        m->recon_id       = 7;
-        m->venue_id       = 100;
-        m->instrument_id  = 1001;
-        m->qty_delta      = -5;
-        m->order_delta    = 1;
-        m->outcome        = 1;
-        m->mismatch_class = 4;
-        m->finalize_ts_ns = 1234;
-    }
-    EXPECT_EQ(std::memcmp(&v1, &v2, sizeof(v1)), 0) << "padding is not zero — see contracts.md";
-    SUCCEED();
 }
 
 // ---- Sequence discontinuity classification (contracts.md, "Sequence numbers across a restart") ------------------
