@@ -15,6 +15,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <df/msg/common.hpp>
+#include <df/msg/control.hpp>
 #include <df/msg/header.hpp>
 #include <df/msg/market_data.hpp>
 #include <df/msg/orders.hpp>
@@ -30,6 +32,8 @@ namespace
 // it carries. No local copy: header.hpp asserts the layout, and this file only
 // consumes it.
 using df::msg::BookSnapshotRequestMsg;
+using df::msg::HeartbeatMsg;
+using df::msg::KillCommand;
 using df::msg::kMsgFlagModelledFill;
 using df::msg::MsgHeader;
 using df::msg::ReplaceOrderMsg;
@@ -54,18 +58,6 @@ struct LogEntryHeader
     std::uint64_t recv_ts_ns;  //  8 .. 16  the recorder's own clock, when it received it
 };
 
-// Mirrors KillCommand (contracts.md, `KillSwitchMsg`). The message is a broadcast COMMAND, not a
-// state change: every process receives it and each acts only on the part it owns.
-// A command with no named executor silently does nothing, which is the worst
-// possible failure mode for an emergency control surface.
-enum class KillCommand : std::uint8_t
-{
-    Halt      = 0,
-    CancelAll = 1,
-    Flatten   = 2,
-    Resume    = 3
-};
-
 // Mirrors the per-channel publish-failure policy (contracts.md, "Publication failure is per-channel"). Aeron's
 // window-based backpressure is a bound on RETENTION, not a promise that a publish
 // succeeds: offer() returns a negative code and delivers nothing. A hot thread may
@@ -79,18 +71,6 @@ enum class PublishFailurePolicy : std::uint8_t
         1,  // lossy by nature; self-heals via seq_num gap (contracts.md, "Sequence numbers across a restart")
     FailClosed          = 2,  // latch the kill switch rather than drop
     RetryUntilDelivered = 3
-};
-
-// Mirrors HeartbeatMsg (contracts.md, `HeartbeatMsg`). ref_data_hash makes a heartbeat assert
-// IDENTITY as well as liveness, at zero wire cost: it occupies bytes that were
-// already padding, so the message stays 48 bytes.
-struct HeartbeatMsg
-{
-    MsgHeader    hdr;    //  0 .. 32
-    std::uint8_t state;  // 32 .. 33
-    // 3 bytes padding
-    std::uint32_t ref_data_hash;  // 36 .. 40  content hash of loaded reference data
-    std::uint64_t beat_ts_ns;     // 40 .. 48
 };
 
 // Mirrors OrderRecordState (layers.md, L4 (OMS)). PendingReplace sits between
