@@ -15,6 +15,7 @@ if(DF_HAVE_GTEST)
         control_test.cpp
         execution_test.cpp
         header_test.cpp
+        ledger_test.cpp
         market_data_test.cpp
         orders_test.cpp
         reconciliation_test.cpp
