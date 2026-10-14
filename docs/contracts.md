@@ -781,7 +781,7 @@ uint8_t  mismatch_class;  // 61..62
 uint64_t finalize_ts_ns;  // 64..72
 ```
 
-Six bytes of padding follow `mismatch_class`.
+Two bytes of padding follow `mismatch_class`.
 
 One message per (venue, instrument) per pass. The six disagreement classes are separate because
 they have different causes, severities, and resolutions, and the class is the only diagnostic an
