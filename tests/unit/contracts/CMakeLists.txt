@@ -12,6 +12,7 @@
 if(DF_HAVE_GTEST)
     add_executable(df_contracts_tests
         common_test.cpp
+        control_test.cpp
         execution_test.cpp
         header_test.cpp
         market_data_test.cpp
