@@ -18,6 +18,7 @@
 #include <df/msg/common.hpp>
 #include <df/msg/control.hpp>
 #include <df/msg/header.hpp>
+#include <df/msg/ledger.hpp>
 #include <df/msg/market_data.hpp>
 #include <df/msg/orders.hpp>
 #include <df/msg/reconciliation.hpp>
@@ -32,12 +33,15 @@ namespace
 // The real message header (contracts.md, "The message header") and the flag bit
 // it carries. No local copy: header.hpp asserts the layout, and this file only
 // consumes it.
+using df::msg::BasisAdoptedMsg;
 using df::msg::BookSnapshotRequestMsg;
 using df::msg::HeartbeatMsg;
 using df::msg::KillCommand;
 using df::msg::kMsgFlagModelledFill;
 using df::msg::kVenueOrderClaimMax;
 using df::msg::MsgHeader;
+using df::msg::OrderAbandonedMsg;
+using df::msg::PositionAdoptedMsg;
 using df::msg::ReconRequestMsg;
 using df::msg::ReconResultMsg;
 using df::msg::ReconVerdictMsg;
@@ -96,33 +100,6 @@ enum class OrderRecordState : std::uint8_t
 
 constexpr bool IsTerminal(OrderRecordState s)
 { return s >= OrderRecordState::Filled; }
-
-// Mirrors the ledger-adjustment messages (contracts.md, "Ledger adjustments"). The carrier for the two ledger
-// mutations that are NOT derivable from orders/fills: the off-path wall-clock
-// `Abandoned` sweep (layers.md, L4 (OMS)), and reconciliation's adopted corrections (contracts.md, Reconciliation)
-// classes 1/2/5). Without it, the audit log has a hole exactly where recovery is
-// hardest, and P10's "reconstructs identically" cannot hold.
-enum class LedgerAdjustmentType : std::uint8_t
-{
-    OrderAbandoned  = 0,
-    PositionAdopted = 1,
-    BasisAdopted    = 2,
-};
-
-struct LedgerAdjustmentMsg
-{
-    MsgHeader     hdr;
-    std::uint64_t adjustment_id;    // monotonic per producer (L4)
-    std::uint64_t recon_id;         // the pass that caused it; 0 for a sweep
-    std::uint64_t client_order_id;  // valid for OrderAbandoned, else 0
-    std::uint32_t instrument_id;
-    std::uint32_t venue_id;  // 0 = not venue-specific
-    std::uint8_t  type;      // LedgerAdjustmentType
-    // 7 bytes padding
-    std::int64_t  new_net_qty;
-    std::int64_t  new_avg_entry;
-    std::uint64_t applied_ts_ns;
-};
 
 }  // namespace
 
@@ -263,11 +240,28 @@ TEST(P0Smoke, LedgerAdjustmentsAreRecordedAndIdempotent)
     // contracts.md, "Ledger adjustments" there was no carrier for either — OrderStatus has no `Abandoned`, and
     // the recorder's coverage excluded L4's journal. layers.md, L4 (OMS) could only *assert*
     // "recorded as an explicit event"; nothing recorded it.
-    EXPECT_EQ(sizeof(LedgerAdjustmentMsg), 96u);
-    EXPECT_EQ(offsetof(LedgerAdjustmentMsg, adjustment_id), 32u);
-    EXPECT_EQ(offsetof(LedgerAdjustmentMsg, type), 64u);
-    EXPECT_EQ(offsetof(LedgerAdjustmentMsg, new_net_qty), 72u) << "padding before new_net_qty";
-    EXPECT_EQ(offsetof(LedgerAdjustmentMsg, applied_ts_ns), 88u) << "padding before applied_ts_ns";
+    EXPECT_EQ(sizeof(OrderAbandonedMsg), 64u);
+    EXPECT_EQ(offsetof(OrderAbandonedMsg, adjustment_id), 32u);
+    EXPECT_EQ(offsetof(OrderAbandonedMsg, client_order_id), 40u);
+    EXPECT_EQ(offsetof(OrderAbandonedMsg, instrument_id), 48u);
+    EXPECT_EQ(offsetof(OrderAbandonedMsg, venue_id), 52u);
+    EXPECT_EQ(offsetof(OrderAbandonedMsg, applied_ts_ns), 56u);
+
+    EXPECT_EQ(sizeof(PositionAdoptedMsg), 72u);
+    EXPECT_EQ(offsetof(PositionAdoptedMsg, adjustment_id), 32u);
+    EXPECT_EQ(offsetof(PositionAdoptedMsg, recon_id), 40u);
+    EXPECT_EQ(offsetof(PositionAdoptedMsg, instrument_id), 48u);
+    EXPECT_EQ(offsetof(PositionAdoptedMsg, venue_id), 52u);
+    EXPECT_EQ(offsetof(PositionAdoptedMsg, new_net_qty), 56u);
+    EXPECT_EQ(offsetof(PositionAdoptedMsg, applied_ts_ns), 64u);
+
+    EXPECT_EQ(sizeof(BasisAdoptedMsg), 72u);
+    EXPECT_EQ(offsetof(BasisAdoptedMsg, adjustment_id), 32u);
+    EXPECT_EQ(offsetof(BasisAdoptedMsg, recon_id), 40u);
+    EXPECT_EQ(offsetof(BasisAdoptedMsg, instrument_id), 48u);
+    EXPECT_EQ(offsetof(BasisAdoptedMsg, venue_id), 52u);
+    EXPECT_EQ(offsetof(BasisAdoptedMsg, new_avg_entry), 56u);
+    EXPECT_EQ(offsetof(BasisAdoptedMsg, applied_ts_ns), 64u);
 
     // Write-ahead ordering (contracts.md, "Publication failure is per-channel"): the adjustment is logged BEFORE it is applied.
     // If the `ledger` publish fails, live state must not change. Modelled as a
@@ -286,34 +280,32 @@ TEST(P0Smoke, LedgerAdjustmentsAreRecordedAndIdempotent)
     EXPECT_TRUE(applied && published);
 
     // Idempotent: applying the same adjustment twice converges, unlike a fill
-    // (contracts.md, `ExecutionReportMsg`). Abandoned is terminal; adoption is an assignment.
-    auto apply_adjustment = [](std::int64_t& net_qty, std::int64_t& avg, const LedgerAdjustmentMsg& a) {
-        switch (static_cast<LedgerAdjustmentType>(a.type))
-        {
-            case LedgerAdjustmentType::OrderAbandoned: break;  // terminal order transition; no accumulator to double
-            case LedgerAdjustmentType::PositionAdopted:
-                net_qty = a.new_net_qty;  // assignment, not +=
-                break;
-            case LedgerAdjustmentType::BasisAdopted:
-                avg = a.new_avg_entry;  // assignment, not +=
-                break;
-        }
-    };
-    LedgerAdjustmentMsg a{};
-    a.type           = static_cast<std::uint8_t>(LedgerAdjustmentType::PositionAdopted);
-    a.new_net_qty    = -500'000'000;
-    std::int64_t net = 0, avg = 0;
-    apply_adjustment(net, avg, a);
-    apply_adjustment(net, avg, a);
+    // (contracts.md, `ExecutionReportMsg`). Abandoned is a terminal order transition; the
+    // two adoptions are assignments, not accumulations.
+    PositionAdoptedMsg position{};
+    position.new_net_qty        = -500'000'000;
+    std::int64_t net            = 0;
+    auto         adopt_position = [&](const PositionAdoptedMsg& m) { net = m.new_net_qty; };
+    adopt_position(position);
+    adopt_position(position);
     EXPECT_EQ(net, -500'000'000) << "a duplicated adjustment must not accumulate";
+
+    BasisAdoptedMsg basis{};
+    basis.new_avg_entry      = 922'000'000'000;
+    std::int64_t avg         = 0;
+    auto         adopt_basis = [&](const BasisAdoptedMsg& m) { avg = m.new_avg_entry; };
+    adopt_basis(basis);
+    adopt_basis(basis);
+    EXPECT_EQ(avg, 922'000'000'000) << "a duplicated adjustment must not accumulate";
 
     // A duplicated/out-of-order adjustment is detectable by adjustment_id, and
     // replay ignores anything not greater than the last applied.
-    a.adjustment_id            = 7;
+    OrderAbandonedMsg abandoned{};
+    abandoned.adjustment_id    = 7;
     std::uint64_t last_applied = 7;
-    EXPECT_FALSE(a.adjustment_id > last_applied) << "a replay must skip a non-advancing adjustment";
-    a.adjustment_id = 8;
-    EXPECT_TRUE(a.adjustment_id > last_applied);
+    EXPECT_FALSE(abandoned.adjustment_id > last_applied) << "a replay must skip a non-advancing adjustment";
+    abandoned.adjustment_id = 8;
+    EXPECT_TRUE(abandoned.adjustment_id > last_applied);
 }
 
 // ---- Padding must be zero (contracts.md, "Every message is value-initialized before use") --------------------------------
