@@ -17,6 +17,7 @@ if(DF_HAVE_GTEST)
         header_test.cpp
         market_data_test.cpp
         orders_test.cpp
+        reconciliation_test.cpp
         signals_test.cpp)
     target_link_libraries(df_contracts_tests PRIVATE df::contracts GTest::gtest_main)
 

@@ -20,6 +20,7 @@
 #include <df/msg/header.hpp>
 #include <df/msg/market_data.hpp>
 #include <df/msg/orders.hpp>
+#include <df/msg/reconciliation.hpp>
 #include <span>
 #include <string_view>
 #include <type_traits>
@@ -35,7 +36,11 @@ using df::msg::BookSnapshotRequestMsg;
 using df::msg::HeartbeatMsg;
 using df::msg::KillCommand;
 using df::msg::kMsgFlagModelledFill;
+using df::msg::kVenueOrderClaimMax;
 using df::msg::MsgHeader;
+using df::msg::ReconRequestMsg;
+using df::msg::ReconResultMsg;
+using df::msg::ReconVerdictMsg;
 using df::msg::ReplaceOrderMsg;
 
 // Mirrors the audit-log entry framing (layers.md, L6 (observability)). Every entry in the log
@@ -91,50 +96,6 @@ enum class OrderRecordState : std::uint8_t
 
 constexpr bool IsTerminal(OrderRecordState s)
 { return s >= OrderRecordState::Filled; }
-
-// Mirrors the reconciliation messages (contracts.md, "Reconciliation"). These exist so that a
-// field reordering, a widened type, or an accidentally added member fails the
-// build rather than silently changing the wire layout.
-struct ReconRequestMsg
-{
-    MsgHeader     hdr;
-    std::uint64_t recon_id;
-    std::uint32_t venue_id;
-    std::uint8_t  trigger;
-    // 3 bytes padding
-    std::uint64_t requested_ts_ns;
-};
-
-struct ReconResultMsg
-{
-    MsgHeader     hdr;
-    std::uint64_t recon_id;
-    std::uint32_t venue_id;
-    std::uint32_t instrument_id;
-    std::int64_t  venue_net_qty;
-    std::int64_t  venue_avg_px;
-    std::uint32_t venue_open_orders;  // the venue's TOTAL open-order count
-    std::uint32_t venue_fill_count;
-    std::uint8_t  status;
-    // 3 bytes padding
-    std::uint32_t venue_order_count;    // ids present below (<= kMaxReconOrders)
-    std::uint64_t venue_order_ids[64];  // client_order_ids echoed by the venue
-    std::uint64_t venue_ts_ns;
-};
-
-struct ReconVerdictMsg
-{
-    MsgHeader     hdr;
-    std::uint64_t recon_id;
-    std::uint32_t venue_id;
-    std::uint32_t instrument_id;
-    std::int64_t  qty_delta;
-    std::uint32_t order_delta;
-    std::uint8_t  outcome;
-    std::uint8_t  mismatch_class;
-    // 6 bytes padding
-    std::uint64_t finalize_ts_ns;
-};
 
 // Mirrors the ledger-adjustment messages (contracts.md, "Ledger adjustments"). The carrier for the two ledger
 // mutations that are NOT derivable from orders/fills: the off-path wall-clock
@@ -250,7 +211,7 @@ TEST(P0Smoke, ReconciliationComparesOrderIdentityNotCount)
     // exact class marked Critical.
     //
     // The fix is the identity block: the venue echoes the client_order_id of each
-    // open order, and L4 compares SETS. Modelled here with the mirrored struct.
+    // open order, and L4 compares SETS. Modelled here with the contract struct.
     auto same_order_set = [](const ReconResultMsg& r, const std::vector<std::uint64_t>& local, bool& truncated) {
         truncated = r.venue_order_count < r.venue_open_orders;  // claim incomplete
         if (truncated)
@@ -281,16 +242,15 @@ TEST(P0Smoke, ReconciliationComparesOrderIdentityNotCount)
 
     // Truncated claim (more venue orders than the block can carry) is Inconclusive.
     r.venue_open_orders = 100;
-    r.venue_order_count = 64;
+    r.venue_order_count = static_cast<std::uint32_t>(kVenueOrderClaimMax);
     EXPECT_FALSE(same_order_set(r, {order_a, order_b}, truncated));
     EXPECT_TRUE(truncated) << "a partial order set must never be read as agreement";
 
     // The block is fixed-capacity, so the cap is a hard bound the truncation rule
     // protects. It must stay above the reference max_open_orders ceiling (50).
-    constexpr std::uint32_t kMaxReconOrders         = 64;
     constexpr std::uint32_t kReferenceMaxOpenOrders = 50;
-    EXPECT_GT(kMaxReconOrders, kReferenceMaxOpenOrders);
-    EXPECT_EQ(sizeof(r.venue_order_ids) / sizeof(r.venue_order_ids[0]), kMaxReconOrders);
+    EXPECT_GT(kVenueOrderClaimMax, kReferenceMaxOpenOrders);
+    EXPECT_EQ(r.venue_order_ids.size(), kVenueOrderClaimMax);
 }
 
 // ---- Ledger adjustments: the non-stream state changes (contracts.md, "Ledger adjustments") ----
