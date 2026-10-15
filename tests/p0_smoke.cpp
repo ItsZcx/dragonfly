@@ -129,12 +129,12 @@ TEST(P0Smoke, ReconciliationComparesOrderIdentityNotCount)
     // The fix is the identity block: the venue echoes the client_order_id of each
     // open order, and L4 compares SETS. Modelled here with the contract struct.
     auto same_order_set = [](const ReconResultMsg& r, const std::vector<std::uint64_t>& local, bool& truncated) {
-        truncated = r.venue_order_count < r.venue_open_orders;  // claim incomplete
+        truncated = r.venue_order_ids_present < r.venue_open_orders;  // claim incomplete
         if (truncated)
             return false;  // Inconclusive, never Matched (contracts.md, "Reconciliation")
-        if (r.venue_order_count != local.size())
+        if (r.venue_order_ids_present != local.size())
             return false;
-        for (std::uint32_t i = 0; i < r.venue_order_count; ++i)
+        for (std::uint32_t i = 0; i < r.venue_order_ids_present; ++i)
             if (std::find(local.begin(), local.end(), r.venue_order_ids[i]) == local.end())
                 return false;
         return true;
@@ -145,10 +145,10 @@ TEST(P0Smoke, ReconciliationComparesOrderIdentityNotCount)
     const std::uint64_t order_b = 0x00050000000000BBull;  // venue has this one
 
     // The dangerous case: counts agree (1 == 1), identities do not.
-    r.venue_open_orders  = 1;
-    r.venue_order_count  = 1;
-    r.venue_order_ids[0] = order_b;
-    bool truncated       = false;
+    r.venue_open_orders       = 1;
+    r.venue_order_ids_present = 1;
+    r.venue_order_ids[0]      = order_b;
+    bool truncated            = false;
     EXPECT_FALSE(same_order_set(r, {order_a}, truncated));
     EXPECT_FALSE(truncated);
 
@@ -157,8 +157,8 @@ TEST(P0Smoke, ReconciliationComparesOrderIdentityNotCount)
     EXPECT_TRUE(same_order_set(r, {order_a}, truncated));
 
     // Truncated claim (more venue orders than the block can carry) is Inconclusive.
-    r.venue_open_orders = 100;
-    r.venue_order_count = static_cast<std::uint32_t>(kVenueOrderClaimMax);
+    r.venue_open_orders       = 100;
+    r.venue_order_ids_present = static_cast<std::uint32_t>(kVenueOrderClaimMax);
     EXPECT_FALSE(same_order_set(r, {order_a, order_b}, truncated));
     EXPECT_TRUE(truncated) << "a partial order set must never be read as agreement";
 
@@ -356,7 +356,7 @@ TEST(P0Smoke, StrategyRegistrationBindsConfigToCode)
 
     // strategy_id uniqueness is STRUCTURAL, not stylistic: it occupies the top 16
     // bits of signal_id (layers.md, L2 (strategy)). A collision silently merges two strategies'
-    // attribution and corrupts the per-strategy daily-loss breaker (layers.md, L3 (risk) step 8).
+    // attribution and corrupts the per-strategy daily-loss breaker (layers.md, L3 (risk) step 9).
     constexpr std::uint32_t kStrategyId1  = 1;
     constexpr std::uint64_t kSignalIdMask = 0x0000FFFFFFFFFFFFull;
     const auto              sig_a         = (static_cast<std::uint64_t>(kStrategyId1) << 48) | (42u & kSignalIdMask);
@@ -429,14 +429,14 @@ TEST(P0Smoke, RiskLimitsConfigCanExpressThePipeline)
     // check reads, so keys landed wherever seemed reasonable. Two could not express
     // what the design requires at all.
 
-    // Step 1: the rate limit is "messages/sec, PER STRATEGY". A global-only key
+    // Step 2: the rate limit is "messages/sec, PER STRATEGY". A global-only key
     // lets ONE runaway strategy consume the whole process's order budget and
     // starve every other strategy in that process -- the exact failure the limit
     // is meant to prevent. Both tiers are now permitted; the tighter binds.
     constexpr bool kRateLimitIsGlobalOnly = false;
     EXPECT_FALSE(kRateLimitIsGlobalOnly) << "one runaway strategy must not starve the others";
 
-    // Step 8: the daily-loss breaker is PER-STRATEGY, and that is structural, not
+    // Step 9: the daily-loss breaker is PER-STRATEGY, and that is structural, not
     // stylistic -- layers.md, L2 (strategy) justifies requiring strategy_id uniqueness BY the fact
     // that a collision merges two strategies' P&L into one breaker figure. A
     // global-only key would make that justification refer to a mechanism the
@@ -457,7 +457,7 @@ TEST(P0Smoke, RiskLimitsConfigCanExpressThePipeline)
     constexpr int kDisabledLimit = 0;
     EXPECT_NE(kAbsentLimit, kDisabledLimit);
 
-    // Step 2 (instrument status) is NOT a limit at all, and -- after layers.md, L3 (risk) -- it is
+    // Step 3 (instrument status) is NOT a limit at all, and -- after layers.md, L3 (risk) -- it is
     // NOT a venue-listing status either. It is a CANONICAL suspension set pushed over
     // `control`, because an AlphaSignalMsg carries a canonical id and no venue, so a
     // firewall reading a listing's `status` has no answer in a two-venue deployment.
@@ -467,11 +467,11 @@ TEST(P0Smoke, RiskLimitsConfigCanExpressThePipeline)
     EXPECT_FALSE(kL3ReadsVenueListingStatus)
         << "venue listing is read by L1/L5 only (see contracts.md and layers.md, L3)";
 
-    // Step 4 is CANONICAL-ONLY: max_order_qty and nothing else. tick_size, step_size
+    // Step 5 is CANONICAL-ONLY: max_order_qty and nothing else. tick_size, step_size
     // and min_notional are venue micro-structure, enforced by L5 (layers.md, L3 (risk)). This also
     // removes a real bug: the old check was MulDiv(qty, price) >= min_notional,
-    // and a MARKET order has price == 0, so every market order that passed step 3 was
-    // then rejected at step 4 with OrderSizeTooLarge.
+    // and a MARKET order has price == 0, so every market order that passed step 4 was
+    // then rejected at step 5 with OrderSizeTooLarge.
     constexpr bool kL3ChecksStepSizeOrMinNotional = false;
     EXPECT_FALSE(kL3ChecksStepSizeOrMinNotional) << "venue micro-structure belongs to L5";
     constexpr std::int64_t kMarketOrderPrice = 0;  // sentinel (contracts.md, "Numbers are fixed-point integers")
@@ -598,10 +598,9 @@ TEST(P0Smoke, ConfigSkewIsDetectableNotSilent)
     // the fleet believes, with no error anywhere. Orders are then rejected at the
     // venue, or partially filled, for no visible reason.
 
-    // The hash fits existing padding: the heartbeat must NOT grow.
-    EXPECT_EQ(sizeof(HeartbeatMsg), 48u);
+    // The heartbeat carries no timestamp of its own: `hdr.ts_ns` is the beat time.
+    EXPECT_EQ(sizeof(HeartbeatMsg), 40u);
     EXPECT_EQ(offsetof(HeartbeatMsg, ref_data_hash), 36u);
-    EXPECT_EQ(offsetof(HeartbeatMsg, beat_ts_ns), 40u);
 
     // Two processes disagreeing is what closes the gate. Same fail-closed shape
     // as reconciliation (contracts.md, "Reconciliation".7): start unable to trade, prove consistency first.
@@ -647,13 +646,12 @@ TEST(P0Smoke, ReplaceIsNotCancelPlusNew)
     //      the replacement leg would be live but unreserved.
     //   3. The intermediate state (live at venue, superseded locally) has no
     //      representation without PendingReplace.
-    EXPECT_EQ(sizeof(ReplaceOrderMsg), 72u);
+    EXPECT_EQ(sizeof(ReplaceOrderMsg), 64u);
     EXPECT_EQ(offsetof(ReplaceOrderMsg, client_order_id), 32u);
     EXPECT_EQ(offsetof(ReplaceOrderMsg, instrument_id), 40u);
     EXPECT_EQ(offsetof(ReplaceOrderMsg, venue_id), 44u);
     EXPECT_EQ(offsetof(ReplaceOrderMsg, new_qty), 48u);
     EXPECT_EQ(offsetof(ReplaceOrderMsg, new_price), 56u);
-    EXPECT_EQ(offsetof(ReplaceOrderMsg, sent_ts_ns), 64u);
 
     // PendingReplace is NON-terminal: the venue has not confirmed the amendment,
     // so the order may still fill. IsTerminal must classify it with PendingCancel,

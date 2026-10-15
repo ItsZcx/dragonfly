@@ -1,10 +1,5 @@
 // Unit tests for contracts/include/df/msg/common.hpp.
 
-// docs/decisions.md, "Layout and trait checks live in the contracts tests, not
-// the headers". The enum values are the wire values: renumbering one
-// reinterprets an existing log, so the underlying types and the sentinels are
-// asserted here.
-
 #include <cstdint>
 #include <df/msg/common.hpp>
 #include <type_traits>
@@ -49,7 +44,8 @@ static_assert(
     "RiskRejectReason's underlying type should be uint16_t, see docs/contracts.md \"Pre-trade rejection reasons\"");
 
 // The sentinels that fail closed. A zeroed message must read as Unknown or
-// None, so the trading gate stays shut.
+// None, so it cannot pass as a value that is used as it stands: the trading
+// gate stays shut, and a value-initialized order carries no lifetime.
 static_assert(static_cast<std::underlying_type_t<ReconOutcome>>(ReconOutcome::Unknown) == 0,
               "ReconOutcome::Unknown should be 0, see docs/contracts.md \"Reconciliation\"");
 static_assert(static_cast<std::underlying_type_t<ReconStatus>>(ReconStatus::Unknown) == 0,
@@ -58,5 +54,7 @@ static_assert(static_cast<std::underlying_type_t<ReconMismatch>>(ReconMismatch::
               "ReconMismatch::None should be 0, see docs/contracts.md \"Reconciliation\"");
 static_assert(static_cast<std::underlying_type_t<RiskRejectReason>>(RiskRejectReason::None) == 0,
               "RiskRejectReason::None should be 0, see docs/contracts.md \"Pre-trade rejection reasons\"");
+static_assert(static_cast<std::underlying_type_t<TimeInForce>>(TimeInForce::Unknown) == 0,
+              "TimeInForce::Unknown should be 0, see docs/contracts.md \"Shared vocabulary\"");
 
 }  // namespace

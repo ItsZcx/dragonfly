@@ -1,9 +1,5 @@
 // Unit tests for contracts/include/df/msg/execution.hpp.
 
-// docs/decisions.md, "Layout and trait checks live in the contracts tests, not
-// the headers". The offsets are the wire layout: a wrong value breaks every
-// reader and every logged fill.
-
 #include <cstddef>
 #include <df/msg/common.hpp>
 #include <df/msg/execution.hpp>
@@ -27,7 +23,7 @@ static_assert(48 == offsetof(ExecutionReportMsg, instrument_id), "ExecutionRepor
 static_assert(52 == offsetof(ExecutionReportMsg, venue_id), "ExecutionReportMsg.venue_id is at offset 52");
 static_assert(56 == offsetof(ExecutionReportMsg, side), "ExecutionReportMsg.side is at offset 56");
 static_assert(57 == offsetof(ExecutionReportMsg, status), "ExecutionReportMsg.status is at offset 57");
-static_assert(58 == offsetof(ExecutionReportMsg, liquidity_flag), "ExecutionReportMsg.liquidity_flag is at offset 58");
+static_assert(58 == offsetof(ExecutionReportMsg, liquidity), "ExecutionReportMsg.liquidity is at offset 58");
 static_assert(64 == offsetof(ExecutionReportMsg, filled_qty), "ExecutionReportMsg.filled_qty is at offset 64");
 static_assert(72 == offsetof(ExecutionReportMsg, cumulative_qty), "ExecutionReportMsg.cumulative_qty is at offset 72");
 static_assert(80 == offsetof(ExecutionReportMsg, fill_price), "ExecutionReportMsg.fill_price is at offset 80");

@@ -5,7 +5,18 @@
 namespace df::msg
 {
 
-// The message type codes. docs/contracts.md, "Field by field" is the reference.
+inline constexpr std::uint8_t kMsgFlagModelledFill = 1 << 0;
+
+struct MsgHeader
+{
+    std::uint32_t msg_type;
+    std::uint32_t msg_len;
+    std::uint32_t producer_id;
+    std::uint8_t  flags;
+    std::uint64_t ts_ns;
+    std::uint64_t seq_num;
+};
+
 enum class MsgType : std::uint32_t
 {
     None = 0,
@@ -44,21 +55,6 @@ enum class MsgType : std::uint32_t
     OrderAbandoned  = 81,
     PositionAdopted = 82,
     BasisAdopted    = 83,
-};
-
-inline constexpr std::uint8_t kMsgFlagModelledFill = 1 << 0;
-
-// Every field is specified in docs/contracts.md, "The message header".
-// `MsgHeader m{}` value-initializes the object and zeroes the padding. See
-// docs/contracts.md, "Every message is value-initialized before use".
-struct MsgHeader
-{
-    std::uint32_t msg_type;
-    std::uint32_t msg_len;
-    std::uint32_t producer_id;
-    std::uint8_t  flags;
-    std::uint64_t ts_ns;
-    std::uint64_t seq_num;
 };
 
 }  // namespace df::msg

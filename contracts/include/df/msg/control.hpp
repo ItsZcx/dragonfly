@@ -12,14 +12,12 @@ struct HeartbeatMsg
     MsgHeader     hdr;
     std::uint8_t  state;  // ProcessState
     std::uint32_t ref_data_hash;
-    std::uint64_t beat_ts_ns;
 };
 
 struct KillSwitchMsg
 {
-    MsgHeader     hdr;
-    std::uint8_t  command;  // KillCommand
-    std::uint64_t issued_ts_ns;
+    MsgHeader    hdr;
+    std::uint8_t command;  // KillCommand
 };
 
 }  // namespace df::msg
