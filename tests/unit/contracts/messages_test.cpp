@@ -1,13 +1,5 @@
 // Runtime coverage for every message type in contracts/include/df/msg/.
 
-// docs/contracts.md, "Every message is value-initialized before use": a message
-// is built as `T m{}`, which zeroes every byte including padding. That is what
-// makes the audit log byte-reproducible and byte comparison sound. A per-header
-// test cannot see the whole message set, so this file covers the guarantee for
-// all nineteen types in one place.
-
-// Obligation 4 of P3 (docs/operations.md, "P3, runtime, IPC, and the recorder").
-
 #include "gtest/gtest.h"
 #include <algorithm>
 #include <array>
@@ -48,8 +40,6 @@ using df::msg::ReplaceOrderMsg;
 using df::msg::RiskRejectMsg;
 using df::msg::TradeMsg;
 
-// P3 obligation 4 (docs/operations.md, "P3, runtime, IPC, and the recorder"):
-// two instances with identical fields produce identical bytes.
 template <typename T> void ExpectIdenticalFieldsAreByteIdentical()
 {
     // The two instances are compared bytewise, so the type must be trivially
@@ -182,7 +172,6 @@ void CheckMessageType(std::uint32_t code)
             ExpectValueInitZeroesEveryByte<BasisAdoptedMsg>();
             return;
     }
-    // A code that is not an enumerator falls through. It names no message.
 }
 
 TEST(Contracts, EveryMessageValueInitializesToZeroBytes)

@@ -223,16 +223,16 @@ This file is the rulebook for L3 (risk). The checks and their order are in `laye
 | `per_instrument` | keyed by canonical instrument id |
 | `per_strategy`   | keyed by `strategy_id`           |
 
-| Key                     | Tier                         | Meaning                                                         |
-| ----------------------- | ---------------------------- | --------------------------------------------------------------- |
-| `kill_switch_active`    | global                       | the breaker latch, set at boot and toggled by a control command |
-| `max_orders_per_second` | global, per_strategy         | token-bucket rate limit                                         |
-| `max_daily_loss`        | global, per_strategy         | the daily-loss breaker                                          |
-| `max_open_orders`       | global, per_strategy         | cap on resting orders                                           |
-| `max_order_qty`         | per_instrument, per_strategy | cap on a single order                                           |
-| `max_position_qty`      | per_instrument, per_strategy | cap on absolute net position                                    |
-| `price_collar_bps`      | per_instrument               | how far from the mid an order may be priced                     |
-| `allow_market_orders`   | per_instrument               | whether market orders are permitted                             |
+| Key                     | Tier                         | Meaning                                                             |
+| ----------------------- | ---------------------------- | ------------------------------------------------------------------- |
+| `kill_switch_active`    | global                       | the kill switch latch, set at boot and toggled by a control command |
+| `max_orders_per_second` | global, per_strategy         | token-bucket rate limit                                             |
+| `max_daily_loss`        | global, per_strategy         | the daily-loss breaker                                              |
+| `max_open_orders`       | global, per_strategy         | cap on resting orders                                               |
+| `max_order_qty`         | per_instrument, per_strategy | cap on a single order                                               |
+| `max_position_qty`      | per_instrument, per_strategy | cap on absolute net position                                        |
+| `price_collar_bps`      | per_instrument               | how far from the mid an order may be priced                         |
+| `allow_market_orders`   | per_instrument               | whether market orders are permitted                                 |
 
 Three rules govern how the tiers combine.
 

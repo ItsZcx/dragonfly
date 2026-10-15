@@ -1,16 +1,5 @@
 // Unit tests for contracts/include/df/msg/header.hpp.
 
-// docs/contracts.md, "Every message is value-initialized before use": a message
-// is built as `T m{}`, which zeroes every byte including padding. That is what
-// makes the audit log byte-reproducible and byte comparison sound.
-
-// The layout, the field offsets, and the traits are asserted here, in the
-// contracts tests, see docs/decisions.md, "Layout and trait checks live in the
-// contracts tests, not the headers". This file also covers the one guarantee an
-// assertion cannot: the padding bytes really are zero after value-initialization.
-
-// Obligation: issue #3, "contracts: add header.hpp with MsgHeader and MsgFlag".
-
 #include "gtest/gtest.h"
 #include <array>
 #include <cstddef>

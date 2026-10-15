@@ -3,9 +3,10 @@
 // Purpose: prove the toolchain end to end — Clang, C++20, CMake, Ninja,
 // GoogleTest, and CTest all work — before any real code exists.
 //
-// It also verifies the language features and layout conventions the design
-// depends on (contracts.md), so a toolchain regression is caught now rather
-// than discovered in P1.
+// It also pre-verifies the design rules whose phases have no code yet, so a
+// contradiction between the docs and the plan is caught early. Each test retires
+// as its phase lands a real test: the message layouts it used to check now live
+// in tests/unit/contracts/.
 //
 // Layer legend (overview.md, "The channels"): L1 = ingestion (feed handler), L2 = strategy,
 // L3 = risk (firewall), L4 = OMS (ledger), L5 = EMS (execution), L6 = observability.
@@ -24,22 +25,18 @@
 #include <df/msg/reconciliation.hpp>
 #include <span>
 #include <string_view>
-#include <type_traits>
 #include <vector>
 
 namespace
 {
 
-// The real message header (contracts.md, "The message header") and the flag bit
-// it carries. No local copy: header.hpp asserts the layout, and this file only
-// consumes it.
+// Real contract types (contracts.md). No local copies: the contracts tests
+// assert every size, offset, and trait, and this file only consumes them.
 using df::msg::BasisAdoptedMsg;
 using df::msg::BookSnapshotRequestMsg;
 using df::msg::HeartbeatMsg;
 using df::msg::KillCommand;
-using df::msg::kMsgFlagModelledFill;
 using df::msg::kVenueOrderClaimMax;
-using df::msg::MsgHeader;
 using df::msg::OrderAbandonedMsg;
 using df::msg::PositionAdoptedMsg;
 using df::msg::ReconRequestMsg;
@@ -117,64 +114,6 @@ TEST(P0Smoke, Cxx20IsActive)
 #endif
 }
 
-// ---- Contracts rely on these properties (contracts.md) --------------------
-
-TEST(P0Smoke, MsgHeaderIsStandardLayoutAndTriviallyCopyable)
-{
-    // These two traits are what make pointer-casting over a raw byte buffer
-    // safe. If either fails, the zero-copy message design is invalid.
-    static_assert(std::is_standard_layout_v<MsgHeader>);
-    static_assert(std::is_trivially_copyable_v<MsgHeader>);
-    SUCCEED();
-}
-
-TEST(P0Smoke, MsgHeaderLayoutMatchesSpec)
-{
-    // The header is specified as 32 bytes in contracts.md, "The message header".
-    static_assert(sizeof(MsgHeader) == 32, "MsgHeader layout changed — update contracts.md");
-    static_assert(offsetof(MsgHeader, msg_type) == 0);
-    static_assert(offsetof(MsgHeader, msg_len) == 4);
-    static_assert(offsetof(MsgHeader, producer_id) == 8);
-    // `flags` occupies the byte at 12, and three bytes of padding follow it so that
-    // `ts_ns` is 8-byte aligned. This is what proves the header did not grow.
-    static_assert(offsetof(MsgHeader, flags) == 12, "flags must be at offset 12");
-    static_assert(offsetof(MsgHeader, ts_ns) == 16, "padding before ts_ns must keep it 8-aligned");
-    static_assert(offsetof(MsgHeader, seq_num) == 24);
-
-    // The flag bitmask must round-trip through a byte-sized field.
-    static_assert(sizeof(kMsgFlagModelledFill) == 1, "the flag must fit the header's flags byte");
-    static_assert(kMsgFlagModelledFill == 1, "bit 0 is the modelled-fill bit");
-    SUCCEED();
-}
-
-// ---- Reconciliation messages (contracts.md, "Reconciliation") ------------------------------
-
-TEST(P0Smoke, ReconMessagesMatchSpec)
-{
-    static_assert(sizeof(ReconRequestMsg) == 56, "ReconRequestMsg layout changed — update contracts.md");
-    static_assert(sizeof(ReconResultMsg) == 600, "ReconResultMsg layout changed — update contracts.md");
-    static_assert(sizeof(ReconVerdictMsg) == 72, "ReconVerdictMsg layout changed — update contracts.md");
-
-    // Offsets are asserted, not merely sizes: two compensating field changes can
-    // keep sizeof identical while moving a field a consumer reads by offset.
-    static_assert(offsetof(ReconRequestMsg, recon_id) == 32);
-    static_assert(offsetof(ReconRequestMsg, trigger) == 44);
-    static_assert(offsetof(ReconRequestMsg, requested_ts_ns) == 48, "padding before requested_ts_ns");
-
-    static_assert(offsetof(ReconResultMsg, venue_avg_px) == 56, "padding before venue_avg_px");
-    static_assert(offsetof(ReconResultMsg, venue_fill_count) == 68);
-    static_assert(offsetof(ReconResultMsg, status) == 72);
-    static_assert(offsetof(ReconResultMsg, venue_order_count) == 76, "padding before venue_order_count");
-    static_assert(offsetof(ReconResultMsg, venue_order_ids) == 80, "ids must start 8-aligned");
-    static_assert(offsetof(ReconResultMsg, venue_ts_ns) == 592, "padding before venue_ts_ns");
-
-    static_assert(offsetof(ReconVerdictMsg, qty_delta) == 48);
-    static_assert(offsetof(ReconVerdictMsg, mismatch_class) == 61);
-    static_assert(offsetof(ReconVerdictMsg, finalize_ts_ns) == 64, "padding before finalize_ts_ns");
-
-    SUCCEED();
-}
-
 // ---- Reconciliation compares order IDENTITY, not a count (contracts.md, "Reconciliation") ----
 
 TEST(P0Smoke, ReconciliationComparesOrderIdentityNotCount)
@@ -190,12 +129,12 @@ TEST(P0Smoke, ReconciliationComparesOrderIdentityNotCount)
     // The fix is the identity block: the venue echoes the client_order_id of each
     // open order, and L4 compares SETS. Modelled here with the contract struct.
     auto same_order_set = [](const ReconResultMsg& r, const std::vector<std::uint64_t>& local, bool& truncated) {
-        truncated = r.venue_order_count < r.venue_open_orders;  // claim incomplete
+        truncated = r.venue_order_ids_present < r.venue_open_orders;  // claim incomplete
         if (truncated)
             return false;  // Inconclusive, never Matched (contracts.md, "Reconciliation")
-        if (r.venue_order_count != local.size())
+        if (r.venue_order_ids_present != local.size())
             return false;
-        for (std::uint32_t i = 0; i < r.venue_order_count; ++i)
+        for (std::uint32_t i = 0; i < r.venue_order_ids_present; ++i)
             if (std::find(local.begin(), local.end(), r.venue_order_ids[i]) == local.end())
                 return false;
         return true;
@@ -206,10 +145,10 @@ TEST(P0Smoke, ReconciliationComparesOrderIdentityNotCount)
     const std::uint64_t order_b = 0x00050000000000BBull;  // venue has this one
 
     // The dangerous case: counts agree (1 == 1), identities do not.
-    r.venue_open_orders  = 1;
-    r.venue_order_count  = 1;
-    r.venue_order_ids[0] = order_b;
-    bool truncated       = false;
+    r.venue_open_orders       = 1;
+    r.venue_order_ids_present = 1;
+    r.venue_order_ids[0]      = order_b;
+    bool truncated            = false;
     EXPECT_FALSE(same_order_set(r, {order_a}, truncated));
     EXPECT_FALSE(truncated);
 
@@ -218,8 +157,8 @@ TEST(P0Smoke, ReconciliationComparesOrderIdentityNotCount)
     EXPECT_TRUE(same_order_set(r, {order_a}, truncated));
 
     // Truncated claim (more venue orders than the block can carry) is Inconclusive.
-    r.venue_open_orders = 100;
-    r.venue_order_count = static_cast<std::uint32_t>(kVenueOrderClaimMax);
+    r.venue_open_orders       = 100;
+    r.venue_order_ids_present = static_cast<std::uint32_t>(kVenueOrderClaimMax);
     EXPECT_FALSE(same_order_set(r, {order_a, order_b}, truncated));
     EXPECT_TRUE(truncated) << "a partial order set must never be read as agreement";
 
@@ -227,7 +166,6 @@ TEST(P0Smoke, ReconciliationComparesOrderIdentityNotCount)
     // protects. It must stay above the reference max_open_orders ceiling (50).
     constexpr std::uint32_t kReferenceMaxOpenOrders = 50;
     EXPECT_GT(kVenueOrderClaimMax, kReferenceMaxOpenOrders);
-    EXPECT_EQ(r.venue_order_ids.size(), kVenueOrderClaimMax);
 }
 
 // ---- Ledger adjustments: the non-stream state changes (contracts.md, "Ledger adjustments") ----
@@ -240,28 +178,6 @@ TEST(P0Smoke, LedgerAdjustmentsAreRecordedAndIdempotent)
     // contracts.md, "Ledger adjustments" there was no carrier for either — OrderStatus has no `Abandoned`, and
     // the recorder's coverage excluded L4's journal. layers.md, L4 (OMS) could only *assert*
     // "recorded as an explicit event"; nothing recorded it.
-    EXPECT_EQ(sizeof(OrderAbandonedMsg), 64u);
-    EXPECT_EQ(offsetof(OrderAbandonedMsg, adjustment_id), 32u);
-    EXPECT_EQ(offsetof(OrderAbandonedMsg, client_order_id), 40u);
-    EXPECT_EQ(offsetof(OrderAbandonedMsg, instrument_id), 48u);
-    EXPECT_EQ(offsetof(OrderAbandonedMsg, venue_id), 52u);
-    EXPECT_EQ(offsetof(OrderAbandonedMsg, applied_ts_ns), 56u);
-
-    EXPECT_EQ(sizeof(PositionAdoptedMsg), 72u);
-    EXPECT_EQ(offsetof(PositionAdoptedMsg, adjustment_id), 32u);
-    EXPECT_EQ(offsetof(PositionAdoptedMsg, recon_id), 40u);
-    EXPECT_EQ(offsetof(PositionAdoptedMsg, instrument_id), 48u);
-    EXPECT_EQ(offsetof(PositionAdoptedMsg, venue_id), 52u);
-    EXPECT_EQ(offsetof(PositionAdoptedMsg, new_net_qty), 56u);
-    EXPECT_EQ(offsetof(PositionAdoptedMsg, applied_ts_ns), 64u);
-
-    EXPECT_EQ(sizeof(BasisAdoptedMsg), 72u);
-    EXPECT_EQ(offsetof(BasisAdoptedMsg, adjustment_id), 32u);
-    EXPECT_EQ(offsetof(BasisAdoptedMsg, recon_id), 40u);
-    EXPECT_EQ(offsetof(BasisAdoptedMsg, instrument_id), 48u);
-    EXPECT_EQ(offsetof(BasisAdoptedMsg, venue_id), 52u);
-    EXPECT_EQ(offsetof(BasisAdoptedMsg, new_avg_entry), 56u);
-    EXPECT_EQ(offsetof(BasisAdoptedMsg, applied_ts_ns), 64u);
 
     // Write-ahead ordering (contracts.md, "Publication failure is per-channel"): the adjustment is logged BEFORE it is applied.
     // If the `ledger` publish fails, live state must not change. Modelled as a
@@ -306,68 +222,6 @@ TEST(P0Smoke, LedgerAdjustmentsAreRecordedAndIdempotent)
     EXPECT_FALSE(abandoned.adjustment_id > last_applied) << "a replay must skip a non-advancing adjustment";
     abandoned.adjustment_id = 8;
     EXPECT_TRUE(abandoned.adjustment_id > last_applied);
-}
-
-// ---- Padding must be zero (contracts.md, "Every message is value-initialized before use") --------------------------------
-
-TEST(P0Smoke, ValueInitZeroesPadding)
-{
-    // contracts.md, "Every message is value-initialized before use": every message is value-initialized (`T m{}`) before its fields are
-    // written. This is what makes the audit log byte-reproducible and `memcmp`-based
-    // comparison sound. Two value-initialized messages with identical field values
-    // must be byte-for-byte identical, padding included.
-    ReconResultMsg a{};
-    ReconResultMsg b{};
-    for (auto* m : {&a, &b})
-    {
-        m->hdr.msg_type       = 71;
-        m->hdr.flags          = 0;
-        m->recon_id           = 42;
-        m->venue_id           = 100;
-        m->instrument_id      = 1001;
-        m->venue_net_qty      = 1'000'000'000;
-        m->venue_avg_px       = 100'000'000'000;
-        m->venue_open_orders  = 3;
-        m->venue_fill_count   = 17;
-        m->status             = 0;
-        m->venue_order_count  = 3;
-        m->venue_order_ids[0] = 0x0005000000000001ull;
-        m->venue_order_ids[1] = 0x0005000000000002ull;
-        m->venue_order_ids[2] = 0x0005000000000003ull;
-        m->venue_ts_ns        = 123456789;
-    }
-    EXPECT_EQ(std::memcmp(&a, &b, sizeof(a)), 0) << "padding is not zero — see contracts.md";
-
-    // Two other message types, to catch a struct whose gaps differ from
-    // ReconResultMsg's. Cheap, and the assertion is the same one.
-    ReconRequestMsg r1{};
-    ReconRequestMsg r2{};
-    for (auto* m : {&r1, &r2})
-    {
-        m->hdr.msg_type    = 70;
-        m->recon_id        = 7;
-        m->venue_id        = 100;
-        m->trigger         = 0;
-        m->requested_ts_ns = 99;
-    }
-    EXPECT_EQ(std::memcmp(&r1, &r2, sizeof(r1)), 0) << "padding is not zero — see contracts.md";
-
-    ReconVerdictMsg v1{};
-    ReconVerdictMsg v2{};
-    for (auto* m : {&v1, &v2})
-    {
-        m->hdr.msg_type   = 72;
-        m->recon_id       = 7;
-        m->venue_id       = 100;
-        m->instrument_id  = 1001;
-        m->qty_delta      = -5;
-        m->order_delta    = 1;
-        m->outcome        = 1;
-        m->mismatch_class = 4;
-        m->finalize_ts_ns = 1234;
-    }
-    EXPECT_EQ(std::memcmp(&v1, &v2, sizeof(v1)), 0) << "padding is not zero — see contracts.md";
-    SUCCEED();
 }
 
 // ---- Sequence discontinuity classification (contracts.md, "Sequence numbers across a restart") ------------------
@@ -502,7 +356,7 @@ TEST(P0Smoke, StrategyRegistrationBindsConfigToCode)
 
     // strategy_id uniqueness is STRUCTURAL, not stylistic: it occupies the top 16
     // bits of signal_id (layers.md, L2 (strategy)). A collision silently merges two strategies'
-    // attribution and corrupts the per-strategy daily-loss breaker (layers.md, L3 (risk) step 8).
+    // attribution and corrupts the per-strategy daily-loss breaker (layers.md, L3 (risk) step 9).
     constexpr std::uint32_t kStrategyId1  = 1;
     constexpr std::uint64_t kSignalIdMask = 0x0000FFFFFFFFFFFFull;
     const auto              sig_a         = (static_cast<std::uint64_t>(kStrategyId1) << 48) | (42u & kSignalIdMask);
@@ -575,14 +429,14 @@ TEST(P0Smoke, RiskLimitsConfigCanExpressThePipeline)
     // check reads, so keys landed wherever seemed reasonable. Two could not express
     // what the design requires at all.
 
-    // Step 1: the rate limit is "messages/sec, PER STRATEGY". A global-only key
+    // Step 2: the rate limit is "messages/sec, PER STRATEGY". A global-only key
     // lets ONE runaway strategy consume the whole process's order budget and
     // starve every other strategy in that process -- the exact failure the limit
     // is meant to prevent. Both tiers are now permitted; the tighter binds.
     constexpr bool kRateLimitIsGlobalOnly = false;
     EXPECT_FALSE(kRateLimitIsGlobalOnly) << "one runaway strategy must not starve the others";
 
-    // Step 8: the daily-loss breaker is PER-STRATEGY, and that is structural, not
+    // Step 9: the daily-loss breaker is PER-STRATEGY, and that is structural, not
     // stylistic -- layers.md, L2 (strategy) justifies requiring strategy_id uniqueness BY the fact
     // that a collision merges two strategies' P&L into one breaker figure. A
     // global-only key would make that justification refer to a mechanism the
@@ -603,7 +457,7 @@ TEST(P0Smoke, RiskLimitsConfigCanExpressThePipeline)
     constexpr int kDisabledLimit = 0;
     EXPECT_NE(kAbsentLimit, kDisabledLimit);
 
-    // Step 2 (instrument status) is NOT a limit at all, and -- after layers.md, L3 (risk) -- it is
+    // Step 3 (instrument status) is NOT a limit at all, and -- after layers.md, L3 (risk) -- it is
     // NOT a venue-listing status either. It is a CANONICAL suspension set pushed over
     // `control`, because an AlphaSignalMsg carries a canonical id and no venue, so a
     // firewall reading a listing's `status` has no answer in a two-venue deployment.
@@ -613,11 +467,11 @@ TEST(P0Smoke, RiskLimitsConfigCanExpressThePipeline)
     EXPECT_FALSE(kL3ReadsVenueListingStatus)
         << "venue listing is read by L1/L5 only (see contracts.md and layers.md, L3)";
 
-    // Step 4 is CANONICAL-ONLY: max_order_qty and nothing else. tick_size, step_size
+    // Step 5 is CANONICAL-ONLY: max_order_qty and nothing else. tick_size, step_size
     // and min_notional are venue micro-structure, enforced by L5 (layers.md, L3 (risk)). This also
     // removes a real bug: the old check was MulDiv(qty, price) >= min_notional,
-    // and a MARKET order has price == 0, so every market order that passed step 3 was
-    // then rejected at step 4 with OrderSizeTooLarge.
+    // and a MARKET order has price == 0, so every market order that passed step 4 was
+    // then rejected at step 5 with OrderSizeTooLarge.
     constexpr bool kL3ChecksStepSizeOrMinNotional = false;
     EXPECT_FALSE(kL3ChecksStepSizeOrMinNotional) << "venue micro-structure belongs to L5";
     constexpr std::int64_t kMarketOrderPrice = 0;  // sentinel (contracts.md, "Numbers are fixed-point integers")
@@ -744,10 +598,9 @@ TEST(P0Smoke, ConfigSkewIsDetectableNotSilent)
     // the fleet believes, with no error anywhere. Orders are then rejected at the
     // venue, or partially filled, for no visible reason.
 
-    // The hash fits existing padding: the heartbeat must NOT grow.
-    EXPECT_EQ(sizeof(HeartbeatMsg), 48u);
+    // The heartbeat carries no timestamp of its own: `hdr.ts_ns` is the beat time.
+    EXPECT_EQ(sizeof(HeartbeatMsg), 40u);
     EXPECT_EQ(offsetof(HeartbeatMsg, ref_data_hash), 36u);
-    EXPECT_EQ(offsetof(HeartbeatMsg, beat_ts_ns), 40u);
 
     // Two processes disagreeing is what closes the gate. Same fail-closed shape
     // as reconciliation (contracts.md, "Reconciliation".7): start unable to trade, prove consistency first.
@@ -793,13 +646,12 @@ TEST(P0Smoke, ReplaceIsNotCancelPlusNew)
     //      the replacement leg would be live but unreserved.
     //   3. The intermediate state (live at venue, superseded locally) has no
     //      representation without PendingReplace.
-    EXPECT_EQ(sizeof(ReplaceOrderMsg), 72u);
+    EXPECT_EQ(sizeof(ReplaceOrderMsg), 64u);
     EXPECT_EQ(offsetof(ReplaceOrderMsg, client_order_id), 32u);
     EXPECT_EQ(offsetof(ReplaceOrderMsg, instrument_id), 40u);
     EXPECT_EQ(offsetof(ReplaceOrderMsg, venue_id), 44u);
     EXPECT_EQ(offsetof(ReplaceOrderMsg, new_qty), 48u);
     EXPECT_EQ(offsetof(ReplaceOrderMsg, new_price), 56u);
-    EXPECT_EQ(offsetof(ReplaceOrderMsg, sent_ts_ns), 64u);
 
     // PendingReplace is NON-terminal: the venue has not confirmed the amendment,
     // so the order may still fill. IsTerminal must classify it with PendingCancel,

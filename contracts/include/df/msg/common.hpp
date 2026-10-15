@@ -28,18 +28,19 @@ enum class OrderStatus : std::uint8_t
 
 enum class TimeInForce : std::uint8_t
 {
-    GTC = 0,
-    IOC = 1,
-    FOK = 2,
+    Unknown = 0,
+    GTC     = 1,
+    IOC     = 2,
+    FOK     = 3,
 };
 
 enum class ProcessState : std::uint8_t
 {
-    Boot    = 0,
-    Ready   = 1,
-    Trading = 2,
-    Halted  = 3,
-    Error   = 4,
+    Boot      = 0,
+    Ready     = 1,
+    Operating = 2,
+    Halted    = 3,
+    Error     = 4,
 };
 
 enum class KillCommand : std::uint8_t
@@ -89,14 +90,15 @@ enum class RiskRejectReason : std::uint16_t
     None = 0,
 
     KillSwitchActive      = 1,
-    RateLimitExceeded     = 2,
-    InstrumentHalted      = 3,
-    MarketOrderNotAllowed = 4,
-    OrderSizeTooLarge     = 5,
-    PriceCollarViolation  = 6,
-    MaxOpenOrdersExceeded = 7,
-    PositionLimitExceeded = 8,
-    DailyLossExceeded     = 9,
+    TimeInForceUnknown    = 2,
+    RateLimitExceeded     = 3,
+    InstrumentHalted      = 4,
+    MarketOrderNotAllowed = 5,
+    OrderSizeTooLarge     = 6,
+    PriceCollarViolation  = 7,
+    MaxOpenOrdersExceeded = 8,
+    PositionLimitExceeded = 9,
+    DailyLossExceeded     = 10,
 };
 
 }  // namespace df::msg

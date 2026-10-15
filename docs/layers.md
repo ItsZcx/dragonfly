@@ -267,14 +267,15 @@ Every signal runs the same fixed sequence. **First failure wins, and no check is
 | #   | Check                          | Source of truth                                  | Reason code                 |
 | --- | ------------------------------ | ------------------------------------------------ | --------------------------- |
 | 0   | Kill switch tripped?           | an in-memory latch                               | `KillSwitchActive` (1)      |
-| 1   | Rate limit exceeded?           | a token bucket refilled from the monotonic clock | `RateLimitExceeded` (2)     |
-| 2   | Instrument suspended?          | a canonical suspension set                       | `InstrumentHalted` (3)      |
-| 3   | Market orders permitted here?  | the limit table                                  | `MarketOrderNotAllowed` (4) |
-| 4   | Order size within limit?       | the limit table                                  | `OrderSizeTooLarge` (5)     |
-| 5   | Price within the collar?       | the last quote, through `OnQuote`                | `PriceCollarViolation` (6)  |
-| 6   | Open-order count within limit? | the state mirror                                 | `MaxOpenOrdersExceeded` (7) |
-| 7   | Position within limit?         | the state mirror, by canonical id                | `PositionLimitExceeded` (8) |
-| 8   | Daily loss breached?           | realised plus unrealised P&L, net of fees        | `DailyLossExceeded` (9)     |
+| 1   | Time in force written?         | the signal's `tif` field                         | `TimeInForceUnknown` (2)    |
+| 2   | Rate limit exceeded?           | a token bucket refilled from the monotonic clock | `RateLimitExceeded` (3)     |
+| 3   | Instrument suspended?          | a canonical suspension set                       | `InstrumentHalted` (4)      |
+| 4   | Market orders permitted here?  | the limit table                                  | `MarketOrderNotAllowed` (5) |
+| 5   | Order size within limit?       | the limit table                                  | `OrderSizeTooLarge` (6)     |
+| 6   | Price within the collar?       | the last quote, through `OnQuote`                | `PriceCollarViolation` (7)  |
+| 7   | Open-order count within limit? | the state mirror                                 | `MaxOpenOrdersExceeded` (8) |
+| 8   | Position within limit?         | the state mirror, by canonical id                | `PositionLimitExceeded` (9) |
+| 9   | Daily loss breached?           | realised plus unrealised P&L, net of fees        | `DailyLossExceeded` (10)    |
 
 The reason code is offset by one from the step number, because 0 is reserved as a "no reason"
 sentinel. A zero-initialized rejection can therefore never be read as a real verdict.
@@ -282,22 +283,26 @@ sentinel. A zero-initialized rejection can therefore never be read as a real ver
 **Why this order.** The sequence is a deliberate sort from cheapest and most decisive to most
 expensive and least decisive.
 
-- Check 0 is one flag load. When the breaker is tripped, every later check is wasted work.
-- Checks 1 to 4 read fixed memory, such as a bucket or a limit table, with no dependent loads.
-  They reject the malformed and the abusive before the engine touches its own mutable state.
-- Check 5 depends on market data having arrived. It is placed after size deliberately, so a
+- Check 0 is one flag load. When the kill switch is latched, every later check is wasted work.
+- Check 1 compares one byte against a small set, so it is the cheapest check and runs before
+  anything that costs time or touches state. It runs before the rate limiter in particular,
+  because a malformed signal must not consume a token that a valid signal needs.
+- Checks 2 to 5 read fixed memory, such as a bucket or a limit table, with no dependent loads.
+  They reject the abusive before the engine touches its own mutable state.
+- Check 6 depends on market data having arrived. It is placed after size deliberately, so a
   badly sized order is reported as a size error, which is the caller's own bug, rather than as a
   collar violation, which is the market's condition.
-- Checks 6 to 8 read the state mirror and are the expensive part. The position limit needs a
+- Checks 7 to 9 read the state mirror and are the expensive part. The position limit needs a
   post-trade position, and the daily-loss check needs P&L marked to the last mid.
 
 The ordering is also a **security property**, not only a latency one. Because the state-touching
 checks run last, a flood of malformed signals is rejected by the stateless checks and never
 reaches the expensive ones.
 
-**What the ordering must not depend on.** No check may read a value the sender supplied that has
-not been validated. In particular, the collar compares against the mid recorded from L3's own
-market-data subscription, never against the limit price in the signal under test.
+**What the ordering must not depend on.** No check may use a sender-supplied value as an input to a
+decision before that value has been validated. Reading one to validate it is the exception, and check
+1 is that exception. In particular, the collar compares against the mid recorded from L3's own
+market-data subscription, never against the price in the signal under test.
 
 #### Canonical-only
 
