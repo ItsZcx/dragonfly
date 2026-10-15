@@ -306,6 +306,26 @@ execution report rather than a risk rejection.
 
 See `layers.md`, L3.
 
+## A zeroed time in force is rejected, not defaulted
+
+**Problem.** One of the three `TimeInForce` values has to sit at zero, and that value is what a
+value-initialized signal carries. If `GTC` sat there, a zeroed or truncated signal would ask to rest
+an order until someone cancels it.
+
+**Decision.** Reserve zero as `TimeInForce::Unknown` and reject it in the risk pipeline. The values
+become `Unknown` 0, `GTC` 1, `IOC` 2, `FOK` 3. The new check is step 1 of the pipeline, because it
+compares one byte against a small set and therefore costs less than the rate limiter it runs ahead
+of. A malformed signal must not consume a rate-limit token that a valid signal needs.
+
+**Consequence.** A signal whose lifetime was never written fails at the firewall instead of becoming
+a resting order. The three real values shift by one on the wire, and every reason code from
+`RateLimitExceeded` up shifts with them. Nothing is recorded yet, so both changes are free. `Side`
+and `OrderType` still start at a real value, so a zeroed order reads as "buy, limit, unknown
+lifetime". L5 refuses a value its venue cannot express rather than substituting a near one, and that
+capability list is an L5 item.
+
+See `contracts.md`, "Shared vocabulary" and "Pre-trade rejection reasons"; `layers.md`, L3.
+
 ## The venue is authoritative, and trading fails closed
 
 **Problem.** After a restart, the ledger holds a belief about positions and orders. That belief
@@ -351,6 +371,13 @@ publish fails, the change is not applied.
 logged. The ordering is the guarantee, not the message. Because the operations are assignments or
 terminal transitions rather than accumulations, applying one twice converges, so replay seeing a
 duplicate is harmless.
+
+A consequence of that ordering is that an adjustment cannot carry an **apply timestamp**. The bytes
+are fixed at publish, and the publish comes first, so the field could only predict its own apply
+time. The record's time is `hdr.ts_ns`, the publish. The rejected alternative, a field such as
+`applied_ts_ns`, would require applying before publishing, which leaves a window where the ledger is
+ahead of the log. A replay from that log rebuilds a state that is missing a change it already
+applied.
 
 See `contracts.md`, "Ledger adjustments", and `layers.md`, L4.
 

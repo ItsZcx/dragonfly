@@ -57,3 +57,21 @@ What is undecided is how the split is stored and how it reconciles against the c
 which stays the risk aggregate and must remain the single source of truth for exposure.
 
 **Resolved by:** designing the ledger's position storage, which is P7.
+
+## Execution reports do not echo the time in force
+
+`TimeInForce` travels on `AlphaSignalMsg` and `NewOrderMsg`, not on `ExecutionReportMsg`. FIX puts
+its equivalent, tag 59, on all three, so a consumer can see the lifetime the venue applied.
+
+The three values we have leave nothing for a venue to reinterpret, so the field would go unused
+today. It becomes load-bearing as soon as a venue expires an order, treats a missing value as its own
+default, or substitutes a value of its own. The ledger would then learn the change only from a status
+update, and a mismatch could not distinguish an order that expired as instructed from one the venue
+cancelled.
+
+`ExecutionReportMsg` has five bytes of padding after `liquidity`, so the field would fit without
+changing its size.
+
+**Resolved by:** the L5 (EMS) venue-capability work. If a venue with a richer time-in-force
+vocabulary is added, the report needs the field. If the three values are permanent, this entry is
+deleted and the contract keeps its assumption that the venue applies our instruction verbatim.
