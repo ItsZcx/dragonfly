@@ -783,6 +783,11 @@ step 0, because 0 is the sentinel. Read the mapping from the table rather than i
 
 ### Orders — L3 (risk) to L4 (OMS) and L5 (EMS)
 
+Three message types travel on `orders`, and two layers publish them. `NewOrderMsg` comes from L3,
+which is the layer that approves a signal and generates the client order id. `CancelOrderMsg` and
+`ReplaceOrderMsg` come from L4, which owns the order records and is the layer that knows an order is
+stale. L5 claims whichever ones name its venue.
+
 #### `NewOrderMsg` — an approved order (80 bytes)
 
 `df/msg/orders.hpp`, `MsgType::NewOrder = 41`, on `orders`.
@@ -963,12 +968,17 @@ Seven bytes of padding follow `command`.
 This is a broadcast **command**, not a state change. Every process receives it and acts only on
 the part it owns, which is why there is no target field. The four commands form a ladder.
 
-| Command    | Effect                                                                                         |
-| ---------- | ---------------------------------------------------------------------------------------------- |
-| Halt       | latch the kill switch. No new orders are admitted, and live orders and positions are untouched |
-| Cancel all | halt, then cancel every live order at its venue                                                |
-| Flatten    | cancel all, then send orders to bring every position to zero                                   |
-| Resume     | clear the latch, if the trading gate allows                                                    |
+| Command    | Executed by                | Effect                                                                                         |
+| ---------- | -------------------------- | ---------------------------------------------------------------------------------------------- |
+| Halt       | L3 (risk)                  | latch the kill switch. No new orders are admitted, and live orders and positions are untouched |
+| Cancel all | L4 (OMS), sent by L5 (EMS) | halt, then cancel every live order at its venue                                                |
+| Flatten    | L4 (OMS), sent by L5 (EMS) | cancel all, then send orders to bring every position to zero                                   |
+| Resume     | L3 (risk)                  | clear the latch, if the trading gate allows                                                    |
+
+L3 owns the flag that admits or refuses orders, so it is the only place a latch can take effect.
+L4 owns the order records, so it knows which orders are live and how much sits at each venue. L5
+owns the venue session, so it is the only component that can put a message on the wire. Neither
+layer could do the other's half.
 
 `Flatten` is the one command that transmits new orders while the system is halted, so it is the
 one control path that can create exposure rather than only reduce it. It requires an explicit
@@ -976,7 +986,7 @@ operator command, with no automatic trigger, and it is the documented exception 
 gate. The gate exists to stop strategies, not to trap the system in a position it must exit.
 
 A command with no named executor silently does nothing, which is the worst property an emergency
-control can have. Which layer executes each command is therefore normative, not implied.
+control can have. The executor column is therefore normative, not implied.
 
 ### Reconciliation — L4 (OMS) and L5 (EMS), reported to L6
 

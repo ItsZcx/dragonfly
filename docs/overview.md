@@ -89,7 +89,7 @@ header tells the reader which one sent it.
 | ------------- | ----------------------------- | ---------------------------- | ------------------------- |
 | `md`          | L1 → L2, L3, L6               | market data                  | strategies, risk, monitor |
 | `signals`     | L2 → L3                       | trading intentions           | risk                      |
-| `orders`      | L3 → L4, L5                   | approved orders              | OMS, gateways             |
+| `orders`      | L3 and L4 → L4, L5            | new orders, cancels, amends  | OMS, gateways             |
 | `fills`       | L5 → L4, L3, L6               | execution outcomes           | OMS, risk, monitor        |
 | `risk_events` | L3 → L2, L6                   | rejections                   | strategies, monitor       |
 | `control`     | every process ↔ every process | heartbeats, kill switch      | every process             |
