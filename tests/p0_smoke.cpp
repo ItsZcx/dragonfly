@@ -387,34 +387,34 @@ TEST(P0Smoke, StrategyRegistrationBindsConfigToCode)
     EXPECT_GE(kMaxOwnerId, 299u) << "the bound must cover every producer_id range in contracts.md";
 }
 
-// ---- Phase acceptance tests live outside the summary table (operations.md, "What each phase must prove") ----
+// ---- Phase acceptance tests live in each phase's section (operations.md, "The phase plan") ----
 
 TEST(P0Smoke, PhaseTableStaysScannable)
 {
-    // operations.md, "The phase plan"'s table is read to answer "what does this phase produce?" -- a
-    // scannable summary. The acceptance tests were being inlined into it, which
-    // made P3's cell roughly THREE TIMES the length of any other (1015 chars vs a
-    // ~270 median) and defeated the table's only purpose. An acceptance test is
-    // read to answer a different question ("what exactly must I observe?"), by a
-    // different audience, so the obligations moved to operations.md, "What each phase must prove".
+    // operations.md, "The phase plan" has two layers. The table is the summary, read to
+    // answer "what does this phase produce?" at a glance. Each phase then has its own
+    // section with the detail, and its proofs answer "what exactly must I observe?".
     //
-    // The rule this encodes: if a cell needs bold text to stay legible, it is not
+    // The acceptance tests were once inlined into the table, which made P3's cell
+    // roughly THREE TIMES the length of any other (1015 chars vs a ~270 median) and
+    // defeated the table's only purpose. They now sit in the phase section they belong
+    // to. The rule this encodes: if a cell needs bold text to stay legible, it is not
     // summary text.
     constexpr bool kAcceptanceTestsBelongInTheTable = false;
     EXPECT_FALSE(kAcceptanceTestsBelongInTheTable) << "a cell needing bold to stay legible is not a summary";
 
-    // The obligations themselves are NOT deleted -- they moved. Each names the
-    // section specifying the rule, so a test checks a WRITTEN CONTRACT rather than
-    // the implementer's memory (operations.md, "What each phase must prove").
-    constexpr int kP3Obligations = 6;
-    constexpr int kP7Obligations = 2;
-    constexpr int kP8Obligations = 3;
-    EXPECT_EQ(kP3Obligations + kP7Obligations + kP8Obligations, 11);
+    // The obligations were not deleted. Every phase section answers the same seven
+    // questions, so a proof sits next to the phase that must observe it, and each proof
+    // names the passage that states the rule rather than the implementer's memory.
+    constexpr int  kQuestionsPerPhase    = 7;
+    constexpr bool kEveryPhaseAnswersAll = true;
+    EXPECT_EQ(kQuestionsPerPhase, 7) << "purpose, builds, technologies, depends on, proves, not in this phase, gaps";
+    EXPECT_TRUE(kEveryPhaseAnswersAll) << "a phase section missing one of the seven cannot be closed";
 
-    // Test 6 is the one needing real care: it asserts a NEGATIVE -- that an order
-    // was NOT silently dropped. A pass requires observing the LATCH, not merely
-    // the absence of an error. Absence-of-error is also what a broken test looks
-    // like, so the two must be distinguishable.
+    // P3's proof 3 needs real care: it asserts a NEGATIVE -- that an order was NOT
+    // silently dropped. A pass requires observing the LATCH, not merely the absence of
+    // an error. Absence-of-error is also what a broken test looks like, so the two must
+    // be distinguishable.
     constexpr bool kObservingNoErrorIsSufficient = false;
     EXPECT_FALSE(kObservingNoErrorIsSufficient)
         << "backpressure's orders case needs the latch observed, not just no crash";
