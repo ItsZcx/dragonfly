@@ -33,8 +33,9 @@ If you read one document, read `docs/overview.md`.
 
 ## Status
 
-Phase P0: the repository skeleton and toolchain. One smoke test passes. The message contracts are
-specified in `docs/contracts.md` but not yet implemented. That work is P1. The build sequence is in
+Phases P0 and P1 are closed. The repository, the toolchain, and the CI gates are in place, and the
+message contracts, the fixed-point arithmetic, and the identifier types are implemented and tested
+against `docs/contracts.md`. The next phase is P2, the clock. The build sequence is in
 `docs/operations.md`, "The phase plan".
 
 ## Toolchain
