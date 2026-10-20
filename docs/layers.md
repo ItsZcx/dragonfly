@@ -412,7 +412,7 @@ It maintains the definitive record of positions, cash, orders, and P&L.
 - **Consumes:** `orders` to open reservations, `fills` to settle, `recon` for the venue's claim
   during reconciliation, and `control` for kill-switch commands.
 - **Produces:** `ReconRequestMsg` and `ReconVerdictMsg` on `recon`, ledger-adjustment messages on
-  `ledger`, and, off-path, snapshots and its journal.
+  `ledger`, and, off-path, snapshots.
 
 L4 produces nothing on the hot path.
 
@@ -432,7 +432,9 @@ L4 produces nothing on the hot path.
   fact to become stale.
 - **Order records**, including a state that distinguishes "live at the venue" from "open from our
   point of view". Those differ exactly when a cancel is in flight.
-- **A snapshot and a journal**, its own durable record for recovery.
+- **A snapshot**, its own durable record for recovery. The audit log is the single durable source,
+  so recovery is the snapshot plus the log tail. The ledger keeps no second record, because a
+  second copy of the same facts is a second place for them to go stale.
 
 #### The central rule
 
