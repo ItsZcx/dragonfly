@@ -299,10 +299,10 @@ The ordering is also a **security property**, not only a latency one. Because th
 checks run last, a flood of malformed signals is rejected by the stateless checks and never
 reaches the expensive ones.
 
-**What the ordering must not depend on.** No check may use a sender-supplied value as an input to a
-decision before that value has been validated. Reading one to validate it is the exception, and check
-1 is that exception. In particular, the collar compares against the mid recorded from L3's own
-market-data subscription, never against the price in the signal under test.
+**What the ordering must not depend on.** No check may use a sender-supplied value as an input to
+a decision before that value has been validated. Reading one to validate it is the exception, and
+check 1 is that exception. In particular, the collar compares against the mid recorded from L3's
+own market-data subscription, never against the price in the signal under test.
 
 #### Canonical-only
 
@@ -340,6 +340,21 @@ Limits come from configuration and live at three tiers: `global`, `per_instrumen
   limit.
 - The **daily-loss breaker is per-strategy**, because `strategy_id` is the attribution key and two
   strategies sharing an id would merge their P&L into one figure.
+
+Each check reads one key, or none. `config/risk_limits.yaml` holds those keys.
+
+| Check                   | Key                                          | Tiers                            |
+| ----------------------- | -------------------------------------------- | -------------------------------- |
+| kill switch latched     | `kill_switch_active`                         | `global`, and it is a latch      |
+| time in force written   | none                                         | not configurable                 |
+| rate limit              | `max_orders_per_second`                      | `global`, `per_strategy`         |
+| instrument suspended    | the canonical set carried on `control`       | not configuration                |
+| market orders permitted | `allow_market_orders`                        | `per_instrument`                 |
+| order size              | `max_order_qty`                              | `per_instrument`, `per_strategy` |
+| price collar            | `price_collar_bps`                           | `per_instrument`                 |
+| open-order count        | `max_open_orders`                            | `global`, `per_strategy`         |
+| position limit          | `max_position_qty`                           | `per_instrument`, `per_strategy` |
+| daily loss              | `max_daily_loss`                             | `global`, `per_strategy`         |
 
 #### The reconciliation gate
 

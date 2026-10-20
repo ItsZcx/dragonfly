@@ -3,16 +3,22 @@
 # L3 = risk (firewall), L4 = OMS (ledger), L5 = EMS (execution), L6 = observability.
 #
 # Consumed by Layer 3 (risk firewall). Evaluated on the hot path in the strict
-# order documented in layers.md, L3 (risk): kill switch, rate limit, instrument
-# status, market-order policy, order size, price collar, open-order count,
-# position limit, daily loss. First failure wins; no check is skipped.
+# order documented in layers.md, L3 (risk): kill switch, time in force, rate
+# limit, instrument status, market-order policy, order size, price collar,
+# open-order count, position limit, daily loss. First failure wins; no check is
+# skipped.
 #
 # CANONICAL ONLY (layers.md, L3 (risk)). Every threshold here is a property of the
-# canonical instrument or the strategy, never of a venue listing. Step 2's
-# "instrument status" is a CANONICAL suspension set pushed over `control`, not a
-# venue listing's status; step 4 checks max_order_qty only. tick_size, step_size
-# and min_notional are venue micro-structure and are enforced by Layer 5, so no
-# key in this file encodes them.
+# canonical instrument or the strategy, never of a venue listing. Step 3's
+# "instrument status" is a CANONICAL suspension set carried by a message on
+# `control`, not a venue listing's status; step 5 checks max_order_qty only.
+# tick_size, step_size and min_notional are venue micro-structure and are
+# enforced by Layer 5, so no key in this file encodes them.
+#
+# Two checks read no key here. Step 1 checks that the signal carries a time in
+# force at all, and step 3 reads the suspension set. Every other check reads one
+# key, and layers.md, L3 (risk) has the table that maps each check to its key and
+# its tiers.
 #
 # A threshold of 0 means "this check is disabled", except kill_switch_active,
 # which is a latched bool rather than a numeric limit.
