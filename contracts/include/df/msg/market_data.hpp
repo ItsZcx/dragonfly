@@ -68,7 +68,7 @@ struct BookSnapshotRequestMsg
 {
     MsgHeader     hdr;
     std::uint32_t instrument_id;
-    std::uint64_t after_seq_num;
+    std::uint64_t seq_floor;
 };
 
 }  // namespace df::msg

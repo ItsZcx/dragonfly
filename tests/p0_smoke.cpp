@@ -812,7 +812,7 @@ TEST(P0Smoke, LogEntryFramingIsSelfDescribing)
     // BookSnapshotRequestMsg layout (contracts.md, `BookSnapshotRequestMsg`), compiler-verified.
     EXPECT_EQ(sizeof(BookSnapshotRequestMsg), 48u);
     EXPECT_EQ(offsetof(BookSnapshotRequestMsg, instrument_id), 32u);
-    EXPECT_EQ(offsetof(BookSnapshotRequestMsg, after_seq_num), 40u);
+    EXPECT_EQ(offsetof(BookSnapshotRequestMsg, seq_floor), 40u);
 }
 
 TEST(P0Smoke, RecorderIsItsOwnProducerAndOwnsTheLog)

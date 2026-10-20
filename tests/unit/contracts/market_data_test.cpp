@@ -88,8 +88,7 @@ static_assert(sizeof(BookSnapshotRequestMsg) == 48,
 static_assert(0 == offsetof(BookSnapshotRequestMsg, hdr), "BookSnapshotRequestMsg.hdr is at offset 0");
 static_assert(32 == offsetof(BookSnapshotRequestMsg, instrument_id),
               "BookSnapshotRequestMsg.instrument_id is at offset 32");
-static_assert(40 == offsetof(BookSnapshotRequestMsg, after_seq_num),
-              "BookSnapshotRequestMsg.after_seq_num is at offset 40");
+static_assert(40 == offsetof(BookSnapshotRequestMsg, seq_floor), "BookSnapshotRequestMsg.seq_floor is at offset 40");
 static_assert(std::is_trivially_copyable_v<BookSnapshotRequestMsg>,
               "BookSnapshotRequestMsg must be trivially copyable: the wire path copies it bytewise");
 static_assert(std::is_standard_layout_v<BookSnapshotRequestMsg>,

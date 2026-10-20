@@ -702,17 +702,19 @@ layout of any logged snapshots.
 
 ```cpp
 uint32_t instrument_id;  // 32..36
-uint64_t after_seq_num;  // 40..48   the snapshot must be at least this fresh
+uint64_t seq_floor;      // 40..48   the snapshot must be at least this fresh
 ```
 
 Four bytes of padding follow `instrument_id`.
 
-`after_seq_num` is the requester's freshness floor: the **highest** sequence it has seen on this
+`seq_floor` is the requester's freshness floor: the **highest** sequence it has seen on this
 instrument's market-data stream. That is not the last sequence it applied, because seeing one ahead
 of its book is how it learned there is a gap. The handler's snapshot must carry a `hdr.seq_num` at or
 above this value, so the snapshot already contains whatever the lost deltas did and one request is
-enough to recover. A snapshot below the floor is discarded like a stale delta. The field names a
-sequence on another stream, not `hdr.seq_num`, which counts messages in the requester's own stream.
+enough to recover. A snapshot below the floor is discarded like a stale delta. The floor bounds the
+answer from below, and it does not say where the answer starts, because a snapshot replaces the whole
+book. The field names a sequence on another stream, not `hdr.seq_num`, which counts messages in the
+requester's own stream.
 
 This is the only consumer-to-producer message in the system. A consumer that notices a sequence
 gap must ask the producing feed handler for a new snapshot. That request is a backwards edge in an
