@@ -705,8 +705,9 @@ on the part it owns. Which layer executes which command is normative, because a 
 named executor silently does nothing, which is the worst property an emergency control can have.
 The commands and their executers are in `contracts.md`.
 
-The reconciliation gate is related but distinct. L6 aggregates reconciliation verdicts and, when a
-pass is fully matched, reopens trading. Anything else keeps it closed.
+The reconciliation gate is related but distinct. L6 displays reconciliation verdicts and can request
+a fresh pass. It never sets the gate. L3 owns the flag and reads the verdicts itself, and it opens
+only when a pass is complete and every verdict matched.
 
 #### Who watches the watcher
 

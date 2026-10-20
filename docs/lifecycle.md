@@ -110,9 +110,11 @@ This story connects the recorder, snapshots, reconciliation, and the trading gat
 7. **It compares.** L4 checks the venue's claim against its own books and publishes a
    `ReconVerdictMsg` per instrument. Each verdict is matched, or a specific class of disagreement.
 8. **The gate decides.** L3 (risk) started with `trading_enabled = false`, so every signal is
-   rejected until the pass completes. If **every instrument matched**, L6 clears the gate and
-   trading resumes automatically. If **anything mismatched or was inconclusive**, the gate stays
-   closed. A human resolves it and then triggers a fresh pass to prove the fix landed.
+   rejected until the pass completes. L3 reads the verdicts itself, and it opens the gate only when
+   the pass is complete and **every instrument matched**. If **anything mismatched or was
+   inconclusive**, the gate stays closed. A human resolves it and then triggers a fresh pass to
+   prove the fix landed. L6 displays the verdicts and can request a pass, and it never sets the
+   gate.
 9. **Trading resumes.** Only now does the next strategy signal get through.
 
 Three ideas hold this story together.
