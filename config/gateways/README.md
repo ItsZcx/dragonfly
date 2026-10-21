@@ -60,7 +60,7 @@ do that. Reasons, in order of consequence:
      The ranges are separate because L1 (ingestion) and L5 (EMS) are different crash domains.
    - `core` — must be unique across running processes and present in the
      kernel's `isolcpus` list. Cores 1-6 are reserved for the hot path in the
-     reference layout (overview.md, "More than six processes"); additional venues go to 8+.
+     reference layout (overview.md, "Layers are roles, not processes"); additional venues go to 8+.
    - `venue_rate_limit` — set to the new venue's published limits, which set a
      floor under Layer 3's internal limit in `risk_limits.yaml`.
 

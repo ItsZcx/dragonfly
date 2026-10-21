@@ -1,21 +1,16 @@
 # Overview: the runtime picture
 
-**Audience:** anyone who needs to know what Dragonfly is before reading any code or message
-definition. If you read one document, read this one.
-
 Dragonfly runs as a set of independent processes that talk over a message bus. Each process owns
 one stage of the path from market data to executed trade. Money and state cross process
-boundaries only as fixed-size messages.
+boundaries only as fixed-size messages (PODs).
 
 ## Contents
 
 - [Layers are roles, not processes](#layers-are-roles-not-processes)
   - [The boundaries are the design](#the-boundaries-are-the-design)
-- [More than six processes](#more-than-six-processes)
 - [The channels](#the-channels)
 - [One tick, end to end](#one-tick-end-to-end)
 - [What is on the hot path](#what-is-on-the-hot-path)
-- [What Dragonfly does not do](#what-dragonfly-does-not-do)
 
 ---
 
@@ -33,10 +28,15 @@ is the job it does.
 | **L3** | Risk          | Approves or rejects each intention                           | C++          |
 | **L4** | OMS           | Records positions, cash, orders, and P&L                     | C++          |
 | **L5** | EMS           | Sends orders to the venue and reports the outcomes           | C++          |
-| **L6** | Observability | Shows what is happening and lets a human stop it             | Python       |
+| **L6** | Observability | Shows what is happening and lets a human stop it             | Python / TBD       |
 
-These documents write a layer as `L<n>` with its name in parentheses on first use in a section:
-`L3 (risk)`, `L5 (EMS)`.
+The core processes are one feed handler per venue, one strategy process, the risk engine, the OMS, one gateway per venue, and the monitor. That strategy process can be one process running multiple strategies or a process per strategy, it depends on configuration.
+
+Four more processes appear as later phases need them. The **telemetry process** summarizes bus
+messages for the monitor and arrives with it. The **audit recorder** writes the durable binary log
+that recovery replays. The **replay harness** feeds historical data through the same strategy,
+risk, OMS, and gateway code as live trading. The **media driver** owns the shared-memory buffers
+that every other process publishes into, and starts before them.
 
 Information travels one way:
 
@@ -45,6 +45,9 @@ L1 (ingestion) → L2 (strategy) → L3 (risk) → L4 (OMS) / L5 (EMS) → venue
 ```
 
 Each layer adds one thing and hands off.
+
+These documents write a layer as `L<n>` with its name in parentheses on first use in a section: `L3 (risk)`, `L5 (EMS)`.
+
 
 ### The boundaries are the design
 
@@ -62,23 +65,6 @@ venue be added without changing the core.
   reports.
 - **L6 (observability)** never sits on the critical path. It may be slow, and it may die.
 
-## More than six processes
-
-A single-venue deployment runs roughly six processes. A two-venue deployment runs more. Adding a
-venue adds processes. It does not add layers.
-
-The core processes are one feed handler per venue, one strategy process, the risk engine, the OMS,
-one gateway per venue, and the monitor. That strategy process is one process running every
-configured strategy, not one process per strategy.
-
-Three more processes appear as later phases need them. The **telemetry process** summarizes bus
-messages for the monitor and arrives with it. The **audit recorder** writes the durable binary log
-that recovery replays. The **replay harness** feeds historical data through the same strategy,
-risk, OMS, and gateway code as live trading.
-
-You do not need to hold the last three in your head to understand the system. They appear when the
-phases that use them appear.
-
 ## The channels
 
 Processes communicate only over named message streams, called channels. A channel is a transport,
@@ -89,23 +75,23 @@ header tells the reader which one sent it.
 | ------------- | ----------------------------- | ---------------------------- | ------------------------- |
 | `md`          | L1 → L2, L3, L6               | market data                  | strategies, risk, monitor |
 | `signals`     | L2 → L3                       | trading intentions           | risk                      |
-| `orders`      | L3 → L4, L5                   | approved orders              | OMS, gateways             |
+| `orders`      | L3 and L4 → L4, L5            | new orders, cancels, amends  | OMS, gateways             |
 | `fills`       | L5 → L4, L3, L6               | execution outcomes           | OMS, risk, monitor        |
 | `risk_events` | L3 → L2, L6                   | rejections                   | strategies, monitor       |
 | `control`     | every process ↔ every process | heartbeats, kill switch      | every process             |
 | `recon`       | L4, L6 ⇄ L5 and L4 → L6       | reconciliation               | OMS, gateways, monitor    |
 | `ledger`      | L4 → recorder, L6             | ledger changes with no event | recorder, monitor         |
 
-Three properties of this set matter.
+Four properties of this set matter.
 
 Data flows downstream, with two exceptions. `control` and `recon` are the only channels that carry
-messages backwards or in both directions. A backward edge is a dependency, and dependencies on the
-hot path are how a system deadlocks, so there are as few as possible.
+messages backwards or in both directions.
 
 Inbound market data is multi-producer. Outbound orders are single-destination. Several feed
 handlers publish to `md`, and `producer_id` distinguishes them, which is what lets one strategy
 compare two venues. A single order, by contrast, must reach exactly one venue, so the order itself
-carries a venue id rather than relying on the channel.
+carries a venue id rather than relying on the channel. With the wildcard id, that holds only while
+one gateway subscribes to `orders`, and the two-gateway case is open in `open-questions.md`.
 
 Every process both publishes and subscribes to `control`. It carries liveness, the kill switch,
 and the one request that travels from a consumer back to a producer.
@@ -150,26 +136,4 @@ On that thread, four things are forbidden:
 
 Everything that would break those rules runs on an off-path thread or in a separate process: log
 writing, snapshots, the reconciliation comparison, the timeout that abandons stale orders, and the
-entire monitor. This is why the durable audit log gets its own process instead of sharing one with
-the disposable monitor, and why neither sits on a trading thread.
-
-Two consequences follow, and both recur throughout these documents.
-
-A publish can fail. The bus is bounded, so a full buffer returns an error and delivers nothing. No
-hot thread may block waiting for space, so every publish site declares what it does when the
-publish fails, and the answer differs by channel.
-
-Time comes from an injected clock. Live runs read a monotonic clock. Backtests advance a simulated
-one. A component asks the clock "what time is it now?" to measure a duration. Separately, every
-message carries the producer's timestamp as data, and replay never rewrites it.
-
-## What Dragonfly does not do
-
-- It contains no venue-specific logic outside L1 and L5. Adding a venue changes the two edges and
-  the configuration, not the core, and adds no message type.
-- It contains no alpha. The system provides the machinery. What makes a strategy profitable is
-  left to the strategy.
-- It does not cross machines. Messages use natural alignment and native byte order, which is valid
-  only because every process runs on one box. A networked deployment would need an explicit wire
-  encoding at that seam.
-- It does not use floating point for money. Prices and quantities are scaled integers.
+entire monitor.

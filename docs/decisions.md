@@ -1,7 +1,5 @@
 # Decisions
 
-**Audience:** anyone asking "why is it built this way?".
-
 Each entry records one decision, the problem it answered, and what it costs. The entries are
 short on purpose. They explain the choice, not the mechanism. For the mechanism, follow the
 cross-reference.
@@ -17,19 +15,26 @@ worth keeping. Routine choices are not listed.
 - [The core is venue-agnostic, and venue code lives at the edges](#the-core-is-venue-agnostic-and-venue-code-lives-at-the-edges)
 - [Messages use natural alignment, not packing](#messages-use-natural-alignment-not-packing)
 - [Every message is value-initialized](#every-message-is-value-initialized)
+- [Layout and trait checks live in the contracts tests, not the headers](#layout-and-trait-checks-live-in-the-contracts-tests-not-the-headers)
+- [Bars come from the venue, not from our trade stream](#bars-come-from-the-venue-not-from-our-trade-stream)
 - [Timestamps are monotonic, never the CPU cycle counter](#timestamps-are-monotonic-never-the-cpu-cycle-counter)
 - [A cancel is a request, not a state change](#a-cancel-is-a-request-not-a-state-change)
 - [A replace reuses the order id](#a-replace-reuses-the-order-id)
+- [A strategy can withdraw or amend its own order](#a-strategy-can-withdraw-or-amend-its-own-order)
+- [A strategy may read its own fills](#a-strategy-may-read-its-own-fills)
+- [A client order id carries the strategy in its top 16 bits](#a-client-order-id-carries-the-strategy-in-its-top-16-bits)
 - [Duplicate fills are detected with a cumulative counter](#duplicate-fills-are-detected-with-a-cumulative-counter)
 - [Fees travel on the wire, and a simulation marks its own](#fees-travel-on-the-wire-and-a-simulation-marks-its-own)
 - [Python runs in its own process](#python-runs-in-its-own-process)
 - [Strategies are registered at build time, not loaded at runtime](#strategies-are-registered-at-build-time-not-loaded-at-runtime)
 - [Signals and orders are separate channels](#signals-and-orders-are-separate-channels)
 - [L3 checks canonical limits only](#l3-checks-canonical-limits-only)
+- [A zeroed time in force is rejected, not defaulted](#a-zeroed-time-in-force-is-rejected-not-defaulted)
 - [The venue is authoritative, and trading fails closed](#the-venue-is-authoritative-and-trading-fails-closed)
 - [The audit log is written by its own process](#the-audit-log-is-written-by-its-own-process)
 - [Ledger adjustments are recorded before they are applied](#ledger-adjustments-are-recorded-before-they-are-applied)
 - [The ledger keeps a per-venue position split for flattening](#the-ledger-keeps-a-per-venue-position-split-for-flattening)
+- [Tests mirror the source tree, and the kind is a namespace](#tests-mirror-the-source-tree-and-the-kind-is-a-namespace)
 - [The system runs on one box](#the-system-runs-on-one-box)
 
 </details>
@@ -69,8 +74,8 @@ rule has to be followed rather than checked.
 
 **Overflow is prevented at the boundary, not handled in the arithmetic.** `MulDiv` narrows a
 128-bit result back to `int64_t`, and does not check whether it fits. The precondition is enforced
-upstream: L3 rejects an order larger than `max_order_qty` at its check 4, and the price collar at
-its check 5 bounds price, so no admissible pair of operands can overflow. With quantity capped at
+upstream: L3 rejects an order larger than `max_order_qty` at its check 5, and the price collar at
+its check 6 bounds price, so no admissible pair of operands can overflow. With quantity capped at
 1.0, the price would need nineteen digits to overflow the result. The residual dependency is that
 mid is sane, which is L1's job.
 
@@ -131,6 +136,45 @@ rejected because a field reorder would silently invalidate it while still compil
 
 See `contracts.md`, "Every message is value-initialized before use".
 
+## Layout and trait checks live in the contracts tests, not the headers
+
+**Problem.** The wire layout is pinned with `static_assert`: a size, a field offset, and three
+traits (`trivially copyable`, `standard layout`, `trivially default constructible`) for every
+message struct. Written inside the headers, those checks grow with the message set. One header
+carried 56 of them, which buried the declaration the reader came for and made every edit a scroll
+through assertions.
+
+**Decision.** Put the checks in the contracts tests, under `tests/unit/contracts/`, and keep the
+headers declarations only. Each check is a plain `static_assert` with a message that names the type
+or the field. The checks are namespace-scope `static_assert`, so a wrong layout still fails the
+build.
+
+**Consequence.** A header is readable again, and one test file per header keeps each check next to
+the tests for that header, per "Tests mirror the source tree". The cost is that the checks run
+only when the contracts tests build. A build that skips the tests no longer self-checks a header,
+which is accepted because CI always builds them.
+
+See `tests/unit/contracts/`, and `contracts.md`, "Natural alignment, no packing".
+
+## Bars come from the venue, not from our trade stream
+
+**Problem.** A strategy that decides on a five-minute bar needs years of history to test, and the
+same bar definition live, or its backtest is fiction. Building bars from trades gives control over
+the window and no delay after each boundary. Importing the venue's candles gives years of history
+for free but inherits the venue's alignment and a short delay after each boundary.
+
+**Decision.** One definition, the venue's. L1 subscribes to the venue's kline stream and publishes
+closed candles as market data on `md`. A historical importer pulls the same candles over REST for
+backtests and warm-up. Bars built from our own trades are not in v1.
+
+**Consequence.** Backtest and live see the same bars arriving at the same point in the stream, so
+the backtest cannot hide the delay. Decisions land after the venue publishes rather than at the
+boundary, which costs nothing at a medium-frequency cadence. The venue's boundary rule and volume
+accounting become ours as well. Two definitions with a provenance flag stay available if the delay
+ever matters.
+
+See `phases.md`, P4.
+
 ## Timestamps are monotonic, never the CPU cycle counter
 
 **Problem.** Two clocks are available for a message timestamp. The wall clock can jump backwards
@@ -178,6 +222,57 @@ does not fire on correct behaviour. A safety mechanism that fires on correct beh
 operator to ignore it.
 
 See `contracts.md`, `ReplaceOrderMsg`.
+
+## A strategy can withdraw or amend its own order
+
+**Problem.** A strategy could place an order and never touch it again. At a medium frequency an
+entry rests for minutes, so a setup that dies leaves the order working into a worse market.
+
+**Decision.** L2 publishes a request on `signals` carrying the `signal_id` of the order it wants
+withdrawn or amended. L3 looks up the order it created for that signal and republishes the existing
+`CancelOrderMsg` or `ReplaceOrderMsg` on `orders`. The order messages, their layout, and their
+ledger rules do not change.
+
+**Consequence.** A withdraw needs no risk approval, because it only reduces exposure, and it works
+while the kill switch is latched, since the latch blocks new orders rather than exits. Because L3
+now sees every withdraw, its open-order count becomes exact. The strategy stays blind to client
+order ids and to venue details, and the cancel-replace race at the venue is untouched, which is why
+amend matters only for a strategy that re-quotes.
+
+See `phases.md`, P7.
+
+## A strategy may read its own fills
+
+**Problem.** L2 acted open-loop. It could not tell whether its last order filled, so it could not
+size the next decision, and after a restart it knew nothing about what it owned.
+
+**Decision.** L2 reads `fills` and keeps the reports addressed to its own strategy, decoded from the
+client order id. At startup it replays the log tail to rebuild its position before it decides. The
+authoritative position stays in L4, and enforcement stays in L3.
+
+**Consequence.** A strategy can hold orders that rest, size from what it owns, and survive a
+restart. The cost is two layers holding a position in the same instrument, so the rule is written
+down: L2's view is for sizing, never for enforcement, and a strategy that miscounts cannot exceed a
+limit because L3 checks its own mirror.
+
+See `phases.md`, P9 and P12.
+
+## A client order id carries the strategy in its top 16 bits
+
+**Problem.** An execution report names its order by `client_order_id` and carries no strategy id, so
+a strategy reading `fills` could not tell which reports were its own without a table mapping ids to
+strategies. A table lives in one process, and a restarted gateway would lose it.
+
+**Decision.** `client_order_id` uses the same layout as `signal_id`. The top 16 bits hold the
+`strategy_id` and the low 48 hold a per-strategy counter, so any layer decodes the strategy with one
+shift.
+
+**Consequence.** Attribution needs no new field, no table, and no coordination between processes,
+because each strategy owns its own 16-bit namespace. The id stops being opaque, so the layout is
+load-bearing: a test decodes a generated id, no other meaning is ever packed into it, and the
+counter must not repeat after a restart, which the startup log replay recovers.
+
+See `contracts.md`, "Order and signal identity".
 
 ## Duplicate fills are detected with a cumulative counter
 
@@ -268,6 +363,26 @@ execution report rather than a risk rejection.
 
 See `layers.md`, L3.
 
+## A zeroed time in force is rejected, not defaulted
+
+**Problem.** One of the three `TimeInForce` values has to sit at zero, and that value is what a
+value-initialized signal carries. If `GTC` sat there, a zeroed or truncated signal would ask to rest
+an order until someone cancels it.
+
+**Decision.** Reserve zero as `TimeInForce::Unknown` and reject it in the risk pipeline. The values
+become `Unknown` 0, `GTC` 1, `IOC` 2, `FOK` 3. The new check is step 1 of the pipeline, because it
+compares one byte against a small set and therefore costs less than the rate limiter it runs ahead
+of. A malformed signal must not consume a rate-limit token that a valid signal needs.
+
+**Consequence.** A signal whose lifetime was never written fails at the firewall instead of becoming
+a resting order. The three real values shift by one on the wire, and every reason code from
+`RateLimitExceeded` up shifts with them. Nothing is recorded yet, so both changes are free. `Side`
+and `OrderType` still start at a real value, so a zeroed order reads as "buy, limit, unknown
+lifetime". L5 refuses a value its venue cannot express rather than substituting a near one, and that
+capability list is an L5 item.
+
+See `contracts.md`, "Shared vocabulary" and "Pre-trade rejection reasons"; `layers.md`, L3.
+
 ## The venue is authoritative, and trading fails closed
 
 **Problem.** After a restart, the ledger holds a belief about positions and orders. That belief
@@ -298,7 +413,7 @@ artifact recovery depends on. The recorder never applies backpressure to a produ
 durability yields to the hot path. If it falls behind, it records a gap marker rather than
 stalling a publisher.
 
-See `layers.md`, L6, and `overview.md`, "More than six processes".
+See `layers.md`, L6, and `overview.md`, "Layers are roles, not processes".
 
 ## Ledger adjustments are recorded before they are applied
 
@@ -314,6 +429,13 @@ logged. The ordering is the guarantee, not the message. Because the operations a
 terminal transitions rather than accumulations, applying one twice converges, so replay seeing a
 duplicate is harmless.
 
+A consequence of that ordering is that an adjustment cannot carry an **apply timestamp**. The bytes
+are fixed at publish, and the publish comes first, so the field could only predict its own apply
+time. The record's time is `hdr.ts_ns`, the publish. The rejected alternative, a field such as
+`applied_ts_ns`, would require applying before publishing, which leaves a window where the ledger is
+ahead of the log. A replay from that log rebuilds a state that is missing a change it already
+applied.
+
 See `contracts.md`, "Ledger adjustments", and `layers.md`, L4.
 
 ## The ledger keeps a per-venue position split for flattening
@@ -323,13 +445,14 @@ command must send orders, and an order must name a venue, so "bring this positio
 not say where each order should go. The default, a wildcard venue, is claimed by one gateway,
 which under-flattens one venue and can over-flatten another.
 
-**Decision.** The ledger keeps a per-venue split alongside the canonical aggregate, fed from the
-venue id already present on every execution report. The canonical quantity stays the risk
-aggregate. A flatten emits one order per non-zero venue leg, each naming its venue.
+**Decision.** The ledger stores one leg per (venue, instrument), fed from the venue id already on
+every execution report, and derives the canonical position as their sum. A flatten emits one order
+per non-zero venue leg, each naming its venue.
 
 **Consequence.** Flatten is correct in a multi-venue deployment, and its retry rule applies per
-leg rather than per canonical position. The cost is extra ledger state, which must reconcile
-against the canonical aggregate so it does not become a second source of truth for exposure.
+leg. The canonical position keeps no separate record, so it cannot disagree with the legs. The
+cost is that a canonical average entry is only an aggregate: when two legs point in opposite
+directions it is not meaningful on its own, so P&L is computed per leg against that leg's basis.
 
 See `layers.md`, L4 and L5.
 

@@ -157,6 +157,19 @@ TEST(CoreTypesFixed, RawProductBoundaryScalesWithQuantity)
     EXPECT_GT(kRaw, static_cast<__int128>(std::numeric_limits<std::int64_t>::max()) / 10);
 }
 
+// The last row of the table. A quantity of 1e-8 lifts the ceiling to about $922
+// million: (1e-8 x 1e9) x (922e6 x 1e9) == 10 x 9.22e17 == 9.22e18.
+TEST(CoreTypesFixed, RawProductBoundaryAtOneNanoUnit)
+{
+    constexpr std::int64_t kQty   = Fixed(0, 10);        // 1e-8
+    constexpr std::int64_t kPrice = Fixed(922'000'000);  // $922 million
+
+    const __int128 kRaw = static_cast<__int128>(kQty) * kPrice;
+
+    EXPECT_LE(kRaw, static_cast<__int128>(std::numeric_limits<std::int64_t>::max()));
+    EXPECT_GT(kRaw, static_cast<__int128>(std::numeric_limits<std::int64_t>::max()) / 10);
+}
+
 // ---------------------------------------------------------------------------
 // Signs. A sell is a negative quantity, and signed overflow runs in two
 // directions. Tests usually cover the positive direction, so this covers the

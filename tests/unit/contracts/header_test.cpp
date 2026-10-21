@@ -1,26 +1,30 @@
 // Unit tests for contracts/include/df/msg/header.hpp.
 
-// docs/contracts.md, "Every message is value-initialized before use": a message
-// is built as `T m{}`, which zeroes every byte including padding. That is what
-// makes the audit log byte-reproducible and byte comparison sound.
-
-// The layout, the field offsets, and the two copy traits are asserted in the
-// header itself, so the compiler checks them on every build. This file covers
-// the one guarantee an assertion cannot: the padding bytes really are zero
-// after value-initialization.
-
-// Obligation: issue #3, "contracts: add header.hpp with MsgHeader and MsgFlag".
-
 #include "gtest/gtest.h"
 #include <array>
 #include <cstddef>
 #include <df/msg/header.hpp>
 #include <memory>
+#include <type_traits>
 
 namespace
 {
 
 using df::msg::MsgHeader;
+
+static_assert(sizeof(MsgHeader) == 32, "MsgHeader is 32 bytes, see docs/contracts.md \"The message header\"");
+static_assert(0 == offsetof(MsgHeader, msg_type), "MsgHeader.msg_type is at offset 0");
+static_assert(4 == offsetof(MsgHeader, msg_len), "MsgHeader.msg_len is at offset 4");
+static_assert(8 == offsetof(MsgHeader, producer_id), "MsgHeader.producer_id is at offset 8");
+static_assert(12 == offsetof(MsgHeader, flags), "MsgHeader.flags is at offset 12");
+static_assert(16 == offsetof(MsgHeader, ts_ns), "MsgHeader.ts_ns is at offset 16");
+static_assert(24 == offsetof(MsgHeader, seq_num), "MsgHeader.seq_num is at offset 24");
+static_assert(std::is_trivially_copyable_v<MsgHeader>,
+              "MsgHeader must be trivially copyable: the wire path copies it bytewise");
+static_assert(std::is_standard_layout_v<MsgHeader>,
+              "MsgHeader must be standard layout: offsetof and the shared wire layout depend on it");
+static_assert(std::is_trivially_default_constructible_v<MsgHeader>,
+              "keep MsgHeader an aggregate: T{} must zero padding (docs/contracts.md)");
 
 TEST(MsgHeader, ValueInitZeroesPadding)
 {
