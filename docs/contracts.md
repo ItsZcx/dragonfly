@@ -1,7 +1,5 @@
 # Contracts: the data
 
-**Audience:** anyone reading, writing, or debugging a message, and anyone implementing a layer.
-
 This is the authoritative description of the wire format. Every field here is pinned by a
 `static_assert` in the contracts tests, under `tests/unit/contracts/`. Where this document and the
 code disagree, the code wins.
@@ -108,8 +106,7 @@ block stays free for the next body on that channel.
 | 82   | `PositionAdoptedMsg`     | `ledger`      |
 | 83   | `BasisAdoptedMsg`        | `ledger`      |
 
-Eight blocks are in use, `10` to `89`. Codes `0` to `9` and every code from `90` up are unused,
-and stay available for a new message. A code that already names a message never gets another one,
+A code that already names a message never gets another one,
 because the log stores messages verbatim and an old log would then decode as the wrong type.
 
 The blocks and the families are two different groupings. The message set below has seven families.
@@ -117,11 +114,8 @@ The blocks number eight, because `RiskRejectMsg` travels on `risk_events` while 
 travels on `signals`, and the document places both in the signals family.
 
 **`MsgType::None` is 0, and code 0 is never a message.** A message is value-initialized as `T m{}`
-before its fields are written, which sets `msg_type` to zero (see "Every message is
-value-initialized before use"). A zeroed buffer, a truncated read, or a slot that was never written
-would otherwise decode as a real message of whatever type zero names. `RiskRejectReason`, `VenueId`,
-`TimeInForce`, `ReconMismatch`, `ReconOutcome`, and `ReconStatus` reserve zero for the same reason:
-a zeroed field must not be usable as it stands.
+before its fields are written, which sets `msg_type` to zero (see [Every message is value-initialized before use](#every-message-is-value-initialized-before-use)). `RiskRejectReason`, `VenueId`,
+`TimeInForce`, `ReconMismatch`, `ReconOutcome`, and `ReconStatus` reserve zero for the same reason.
 
 A consumer switches on the tag, because a channel is a transport and not a type. Five of the eight
 channels carry more than one body, and several processes write to `md` and `control`. The audit
@@ -585,7 +579,9 @@ uint64_t exchange_ts_ns;  // 56..64   the venue's timestamp
 
 Three bytes of padding follow `aggressor_side`, so that `price` starts 8-byte aligned.
 
-`instrument_id` is the canonical id that L1 (ingestion) resolved at ingress. `aggressor_side`
+`instrument_id` is the canonical id that L1 (ingestion) resolved at ingress.
+
+`aggressor_side`
 identifies the taker: the side that initiated the trade, as opposed to the side that was resting. It
 is a raw integer rather than `Side`, where 0 means the buyer crossed the spread and 1 means the
 seller did. The two sets agree on the numbers and disagree on the meaning: this field names the

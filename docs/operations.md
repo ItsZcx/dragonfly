@@ -1,9 +1,7 @@
 # Operations
 
-**Audience:** anyone building, running, or configuring the system.
-
-This file covers how to build and run the system, and the configuration files it reads. The order in
-which the system is built, and what each phase delivers, is in [`phases.md`](phases.md).
+This file covers how to build and run the system, and the configuration files it reads. The build
+order is in [`phases.md`](phases.md).
 
 ## Contents
 

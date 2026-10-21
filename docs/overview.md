@@ -8,7 +8,6 @@ boundaries only as fixed-size messages (PODs).
 
 - [Layers are roles, not processes](#layers-are-roles-not-processes)
   - [The boundaries are the design](#the-boundaries-are-the-design)
-- [More than six processes](#more-than-six-processes)
 - [The channels](#the-channels)
 - [One tick, end to end](#one-tick-end-to-end)
 - [What is on the hot path](#what-is-on-the-hot-path)
@@ -31,8 +30,13 @@ is the job it does.
 | **L5** | EMS           | Sends orders to the venue and reports the outcomes           | C++          |
 | **L6** | Observability | Shows what is happening and lets a human stop it             | Python / TBD       |
 
-These documents write a layer as `L<n>` with its name in parentheses on first use in a section:
-`L3 (risk)`, `L5 (EMS)`.
+The core processes are one feed handler per venue, one strategy process, the risk engine, the OMS, one gateway per venue, and the monitor. That strategy process can be one process running multiple strategies or a process per strategy, it depends on configuration.
+
+Four more processes appear as later phases need them. The **telemetry process** summarizes bus
+messages for the monitor and arrives with it. The **audit recorder** writes the durable binary log
+that recovery replays. The **replay harness** feeds historical data through the same strategy,
+risk, OMS, and gateway code as live trading. The **media driver** owns the shared-memory buffers
+that every other process publishes into, and starts before them.
 
 Information travels one way:
 
@@ -41,6 +45,9 @@ L1 (ingestion) → L2 (strategy) → L3 (risk) → L4 (OMS) / L5 (EMS) → venue
 ```
 
 Each layer adds one thing and hands off.
+
+These documents write a layer as `L<n>` with its name in parentheses on first use in a section: `L3 (risk)`, `L5 (EMS)`.
+
 
 ### The boundaries are the design
 
@@ -57,24 +64,6 @@ venue be added without changing the core.
 - **L5 (EMS)** never does accounting and never chooses which venue to trade. It translates and
   reports.
 - **L6 (observability)** never sits on the critical path. It may be slow, and it may die.
-
-## More than six processes
-
-A single-venue deployment runs roughly six processes. A two-venue deployment runs more. Adding a
-venue adds processes. It does not add layers.
-
-The core processes are one feed handler per venue, one strategy process, the risk engine, the OMS,
-one gateway per venue, and the monitor. That strategy process is one process running every
-configured strategy, not one process per strategy.
-
-Four more processes appear as later phases need them. The **telemetry process** summarizes bus
-messages for the monitor and arrives with it. The **audit recorder** writes the durable binary log
-that recovery replays. The **replay harness** feeds historical data through the same strategy,
-risk, OMS, and gateway code as live trading. The **media driver** owns the shared-memory buffers
-that every other process publishes into, and starts before them.
-
-You do not need to hold the last four in your head to understand the system. They appear when the
-phases that use them appear.
 
 ## The channels
 
@@ -96,8 +85,7 @@ header tells the reader which one sent it.
 Four properties of this set matter.
 
 Data flows downstream, with two exceptions. `control` and `recon` are the only channels that carry
-messages backwards or in both directions. A backward edge is a dependency, and dependencies on the
-hot path are how a system deadlocks, so there are as few as possible.
+messages backwards or in both directions.
 
 Inbound market data is multi-producer. Outbound orders are single-destination. Several feed
 handlers publish to `md`, and `producer_id` distinguishes them, which is what lets one strategy
@@ -149,13 +137,3 @@ On that thread, four things are forbidden:
 Everything that would break those rules runs on an off-path thread or in a separate process: log
 writing, snapshots, the reconciliation comparison, the timeout that abandons stale orders, and the
 entire monitor.
-
-Two consequences follow, and both recur throughout these documents.
-
-A publish to a channel can fail. The bus is bounded, so a full buffer returns an error and delivers nothing. No
-hot thread may block waiting for space, so every publish site declares what it does when the
-publish fails, and the answer differs by channel.
-
-Time comes from an injected clock. Live runs read a monotonic clock. Backtests advance a simulated
-one. A component asks the clock "what time is it now?" to measure a duration. Separately, every
-message carries the producer's timestamp as data, and replay never rewrites it.

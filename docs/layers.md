@@ -1,26 +1,18 @@
 # Layers
 
-**Audience:** anyone implementing or debugging a layer.
+This document describes the six layers. Every layer uses the same subsection order, so the sections can be compared: what it is, what it consumes and produces, how it works, what it must not do, how it fails, and what is core versus added.
 
-This document describes the six layers. Every layer uses the same subsection order, so the
-sections can be compared: what it is, what it consumes and produces, how it works, what it must
-not do, how it fails, and what is core versus added.
+Message layouts are in `contracts.md`. The end-to-end flows are in `lifecycle.md`. The file `overview.md` describes how many processes
+implement the layers.
 
-Message layouts are in `contracts.md`. The end-to-end flows are in `lifecycle.md`. A reminder on
-naming: `L1` to `L6` are roles, not processes. `overview.md` describes how many processes
-implement them.
-
-<details>
-<summary>Contents</summary>
+## Contents
 
 - [L1 (ingestion)](#l1-ingestion)
 - [L2 (strategy)](#l2-strategy)
 - [L3 (risk)](#l3-risk)
-- [L4 (OMS) — the ledger](#l4-oms--the-ledger)
-- [L5 (EMS) — execution](#l5-ems--execution)
+- [L4 (OMS): the ledger](#l4-oms--the-ledger)
+- [L5 (EMS): execution](#l5-ems--execution)
 - [L6 (observability)](#l6-observability)
-
-</details>
 
 ---
 
@@ -41,8 +33,7 @@ It turns venue-specific data into canonical messages and maintains a local order
   venue's closed candles as bars on the same channel.
 
 L1 has two ports. The outbound port publishes market data. The inbound port receives the resync
-request on `control`. The inbound port is easy to miss, because L1 is the only hot-path process
-that consumes rather than publishes. It exists for one reason: a consumer that detects a gap must
+request on `control`. The inbound port  exists for one reason: a consumer that detects a gap must
 be able to ask L1 for a fresh book.
 
 ### How it works
@@ -107,16 +98,6 @@ gap storm therefore cannot become a snapshot storm.
 
 Almost all of L1's complexity is about failure. The happy path is to parse and publish.
 
-### Core versus added
-
-**Core:** connect, parse, resolve the symbol, timestamp, publish, maintain the local book, and
-the snapshot, delta, sequence, and resync mechanism.
-
-**Added:** the request path and `BookSnapshotRequestMsg`. The text once said a gap "triggers a
-resync" without saying how a consumer's request reached the handler that must answer it. The
-mechanism did not exist, and L1 had no inbound port at all. Both were specification gaps rather
-than design choices.
-
 ---
 
 ## L2 (strategy)
@@ -163,11 +144,6 @@ it must compare them. It emits one order per leg, and each leg names its destina
 All feed handlers publish on the same `md` channel, and `producer_id` distinguishes them, so no
 per-venue channel naming is needed.
 
-Venue-agnosticism describes the algorithm: no venue name, no exchange format, no tick size in its
-math. It does not claim that all venues are interchangeable. Venues quote genuinely different
-prices for the same asset at the same instant, and that spread is what a cross-venue strategy
-trades.
-
 #### How a strategy is registered and configured
 
 - **A compiled-in factory keyed by a string.** A configuration entry's `impl` field must match a
@@ -175,12 +151,9 @@ trades.
   and loading a shared object allocates and runs arbitrary initializers mid-process, which is
   forbidden on a hot thread and makes "which code produced this log" unanswerable.
 - **Validation happens at startup, and failure is loud.** An `impl` that is not registered is a
-  startup failure, not a warning. Skipping it would produce a deployment that heartbeats, passes
-  reconciliation, and silently trades nothing, which is the hardest failure to diagnose.
+  startup failure, not a warning.
 - **Parameters are validated against the implementation's own schema before construction.** This
-  turns a mistyped parameter from a silently defaulted value into a startup error. A strategy
-  running on defaults produces plausible signals that were never backtested, which is worse than
-  failing.
+  turns a mistyped parameter from a silently defaulted value into a startup error.
 - **`enabled` is separate from `impl`.** `enabled` is a deployment switch that can be flipped
   without removing the entry, and therefore without losing its attribution history. `impl` is a
   build-time binding. A disabled strategy is still validated, so configuration errors surface at
@@ -232,18 +205,6 @@ A Python strategy is therefore not special at the bus level. It is a peer with i
 A strategy has no write-ahead log. That is deliberate. Its state is reconstructible from the
 market-data stream, so durable storage would add machinery for a case that does not need it. A
 restart is normal traffic.
-
-### Core versus added
-
-**Core:** the strategy interface, the signal message, the read-decide-publish loop, and the
-configuration model.
-
-**Added:** the registration mechanism, because a configuration entry once pointed at nothing and
-no section described how it became an object, and the separate-process decision for Python,
-because earlier text described both a plugin and a separate process, which cannot both be true.
-
-**Explicitly absent:** the alpha. What makes a strategy profitable is not specified anywhere. The
-system provides the machinery, and the strategy provides the idea.
 
 ---
 
@@ -386,20 +347,6 @@ rejection path, so there is exactly one stop-trading state.
 | L3 itself down                | nothing is approved. The failure is closed by construction                      |
 | Bad limit configuration       | startup failure                                                                 |
 
-### Core versus added
-
-**Core:** the pipeline, its ordering as a contract, the reason codes, limits as configuration,
-the state mirror, and rejection reporting.
-
-**Added:** the pipeline's explicit ordering and the mapping from each check to a configuration
-tier, both previously unstated. The canonical-only boundary, because L3 previously read
-venue-listing fields, which made it venue-aware and unanswerable in a multi-venue deployment. The
-reconciliation gate. And the daily-loss definition as net of fees.
-
-**Open:** the mechanism by which L4 communicates dynamic position or capital budgets to L3 is not
-designed. The architecture describes L4 computing budgets and L3 enforcing them, but no message
-carries one.
-
 ---
 
 ## L4 (OMS) — the ledger
@@ -417,8 +364,6 @@ It maintains the definitive record of positions, cash, orders, and P&L.
   during reconciliation, and `control` for kill-switch commands.
 - **Produces:** `ReconRequestMsg` and `ReconVerdictMsg` on `recon`, ledger-adjustment messages on
   `ledger`, and, off-path, snapshots.
-
-L4 produces nothing on the hot path.
 
 ### How it works
 
@@ -537,19 +482,6 @@ the next restart. That is a deliberate trade-off, because continuous reconciliat
 constant venue queries, which are rate-limited and expensive. It does mean the ledger can be
 quietly wrong for a while.
 
-### Core versus added
-
-**Core:** positions, cash, reservations, the event-derived rule, the P&L update rules, `OnFill` as
-the only money-mover, and L4's order state machine.
-
-**Added:** duplicate-fill detection, the pending-cancel and pending-replace semantics because
-cancels once released reservations immediately, the ledger-adjustment messages, the
-widened-arithmetic rule for a genuine overflow bug, and net-of-fees P&L for the breaker.
-
-**Open:** the budget message L4 is said to send L3, described above. The exact shape of the
-per-venue position split needed for flattening, described under L5. And whether ledger adjustments
-need to be replayed or only recorded, which depends on how snapshots and replay interleave.
-
 ---
 
 ## L5 (EMS) — execution
@@ -647,21 +579,6 @@ and that case is open in `open-questions.md`.
 | Venue rate limit hit                | back off and retry. Never discard. A sustained breach is an operator alert                              |
 | The venue reports an unexpected fee | use the venue's number, which is authoritative                                                          |
 
-### Core versus added
-
-**Core:** the order lifecycle, quantization as the single boundary, one process per venue, and the
-"report every outcome" obligation.
-
-**Added:** the venue id on orders and the routing check, the replace operation in the lifecycle,
-the fee and liquidity flag on the wire because fees were previously absent from the design, the
-distinction between L3's rate limit and the venue's, and the rule that a throttled order is
-retried rather than discarded.
-
-**Open:** how a flatten is addressed when a position is held on more than one venue. Positions are
-canonical, so "bring this position to zero" does not on its own say which venue each order should
-go to. The resolution is for the ledger to retain a per-venue split, described under L4, so that
-L5 receives explicit per-venue legs.
-
 ### The generalizable ideas
 
 Venues do not accept arbitrary numbers, so an order must be snapped to a grid. That snapping
@@ -737,17 +654,3 @@ supervision and external alerting, closes that gap. L6 does not watch itself.
 | Telemetry process dies                 | L6 goes blind, and trading continues                                                          |
 | Heartbeats missed                      | L6 declares the process dead and alerts, though a missed heartbeat can also mean L6 is broken |
 | Config skew observed across heartbeats | L6 raises it, and the trading gate closes                                                     |
-
-### Core versus added
-
-**Core:** passive observation, the kill switch, and the droppable-by-design property.
-
-**Added:** the config-hash comparison on heartbeats, the reconciliation verdict aggregation and
-the rule that a clean pass reopens automatically while anything else blocks, and the explicit
-kill-command ownership table.
-
-**Removed:** the audit recorder. The log was originally assigned to monitoring, which is exactly
-backwards. The log is durable and the monitor is disposable, so a dashboard restart or a slow
-write would have silently truncated the artifact recovery depends on. Durability got its own
-process, and the monitor stayed disposable. The general rule: do not let the thing you might
-restart own the thing you cannot lose.

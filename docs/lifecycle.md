@@ -1,7 +1,5 @@
 # Lifecycle: three stories
 
-**Audience:** anyone who wants to see how the layers work together, after reading `overview.md`
-and `layers.md`.
 
 This document follows three things through the system: a market tick, an order, and a restart.
 The three stories are the fastest way to check your understanding, because each one crosses every

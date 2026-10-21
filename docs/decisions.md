@@ -1,7 +1,5 @@
 # Decisions
 
-**Audience:** anyone asking "why is it built this way?".
-
 Each entry records one decision, the problem it answered, and what it costs. The entries are
 short on purpose. They explain the choice, not the mechanism. For the mechanism, follow the
 cross-reference.
@@ -415,7 +413,7 @@ artifact recovery depends on. The recorder never applies backpressure to a produ
 durability yields to the hot path. If it falls behind, it records a gap marker rather than
 stalling a publisher.
 
-See `layers.md`, L6, and `overview.md`, "More than six processes".
+See `layers.md`, L6, and `overview.md`, "Layers are roles, not processes".
 
 ## Ledger adjustments are recorded before they are applied
 

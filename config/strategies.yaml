@@ -55,4 +55,4 @@ strategies:
 processes:
   - producer_id: 2
     strategy_ids: [1]
-    core: 3                        # overview.md, "More than six processes"
+    core: 3                        # overview.md, "Layers are roles, not processes"

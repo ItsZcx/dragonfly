@@ -60,8 +60,8 @@ instruments: [1001]
 # Process identity for message headers (contracts.md, "The message header"). Unique per process.
 producer_id: 5
 
-# CPU core this process is pinned to (overview.md, "More than six processes"). Must be unique across
-# running processes and listed in the kernel's isolcpus.
+# CPU core this process is pinned to (overview.md, "Layers are roles, not processes"). Must be
+# unique across running processes and listed in the kernel's isolcpus.
 core: 5
 
 # Connection behaviour.
