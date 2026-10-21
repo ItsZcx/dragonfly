@@ -78,3 +78,23 @@ So a two-venue deployment puts every order in this case.
 price or from configuration, keeps the signal venue-free. A venue field on the signal would make L3
 venue-aware, which the layer boundaries exist to prevent.
 
+## Link-time optimization is off, and nothing records whether it should be
+
+No preset enables link-time optimization. That is not a decision anyone made: no file mentions it,
+so a reader cannot tell a considered "no" from an omission.
+
+Without it the compiler cannot see one translation unit from another, which is what makes a body in
+a .cpp cost something on a hot path. The clock is the first case: `SimulationClock::AdvanceTo` lives
+in `core/clock/src/clock.cpp` and cannot be inlined into the replay loop it advances. The same will
+hold for L3, L4, and L5.
+
+What it would buy is a few percent on a program with a measured hot path, and nothing measurable
+today, because there is no hot path and the live clock's own cost is a system call. What it costs is
+link time on every build, harder stepping in the debug build, a poor fit with the two presets that
+run the memory and thread checkers, and the risk that a duplicate definition, harmless when each
+translation unit keeps its own copy, silently becomes one wrong choice.
+
+**Resolved by:** the P15 latency measurement, which is where a hot path and a recorded baseline
+exist to compare against. If it is enabled, it goes in the `release` preset only, on targets with
+hot paths, behind `check_ipo_supported`. If it is not, the reasoning is written in `decisions.md`
+and this entry is deleted, so the absence reads as a choice rather than an oversight.
