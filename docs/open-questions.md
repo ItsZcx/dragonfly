@@ -21,7 +21,7 @@ redundant for that case, and the messages matter for auditability rather than fo
 
 This decides whether the three messages are load-bearing for recovery or only for the audit log.
 
-**Resolved by:** designing the snapshot and replay procedure, which is P10.
+**Resolved by:** designing the snapshot and replay procedure, which is P12.
 
 ## The `recon` channel is not recorded, so `recon_id` points nowhere in the log
 
@@ -31,7 +31,7 @@ and no record of what the venue claimed.
 
 The audit can say "reconciliation caused this". It cannot say what the venue said.
 
-**Resolved by:** the same P10 work as the entry above. If replay is correctness-critical for
+**Resolved by:** the same P12 work as the entry above. If replay is correctness-critical for
 adjustments, the log likely needs the venue's claim as well. Recording `recon` is one way. Folding
 the venue's numbers into the adoption message is another.
 
@@ -47,27 +47,16 @@ mechanism that was never designed.
 **Resolved by:** deciding whether dynamic budgets are needed at all. If the configured limits and
 the mirror are sufficient, this entry is deleted rather than implemented.
 
-## The per-venue position split is decided in principle, not specified
-
-`decisions.md` records the decision that the ledger keeps a per-venue position split, fed from the
-venue id on every execution report, so that a flatten can name the venue for each leg. The
-requirement is stated in `layers.md`, L4 and L5. The shape is not designed.
-
-What is undecided is how the split is stored and how it reconciles against the canonical position,
-which stays the risk aggregate and must remain the single source of truth for exposure.
-
-**Resolved by:** designing the ledger's position storage, which is P7.
-
 ## Execution reports do not echo the time in force
 
 `TimeInForce` travels on `AlphaSignalMsg` and `NewOrderMsg`, not on `ExecutionReportMsg`. FIX puts
 its equivalent, tag 59, on all three, so a consumer can see the lifetime the venue applied.
 
 The three values we have leave nothing for a venue to reinterpret, so the field would go unused
-today. It becomes load-bearing as soon as a venue expires an order, treats a missing value as its own
-default, or substitutes a value of its own. The ledger would then learn the change only from a status
-update, and a mismatch could not distinguish an order that expired as instructed from one the venue
-cancelled.
+today. It becomes load-bearing as soon as a venue expires an order, treats a missing value as its
+own default, or substitutes a value of its own. The ledger would then learn the change only from a
+status update, and a mismatch could not distinguish an order that expired as instructed from one the
+venue cancelled.
 
 `ExecutionReportMsg` has five bytes of padding after `liquidity`, so the field would fit without
 changing its size.
@@ -75,3 +64,17 @@ changing its size.
 **Resolved by:** the L5 (EMS) venue-capability work. If a venue with a richer time-in-force
 vocabulary is added, the report needs the field. If the three values are permanent, this entry is
 deleted and the contract keeps its assumption that the venue applies our instruction verbatim.
+
+## Two gateways both claim an order with a wildcard venue id
+
+`NewOrderMsg.venue_id` of `0` means any venue, and the gateway that receives the order claims it.
+That is unambiguous while exactly one gateway subscribes to `orders`. With two, both receive the
+same message and both would transmit it, and nothing says which one wins.
+
+Nothing sets the venue id on an order today: a signal carries no venue, and L3 has none to copy.
+So a two-venue deployment puts every order in this case.
+
+**Resolved by:** deciding where venue selection lives. A routing policy in L4 or L5, choosing by
+price or from configuration, keeps the signal venue-free. A venue field on the signal would make L3
+venue-aware, which the layer boundaries exist to prevent.
+

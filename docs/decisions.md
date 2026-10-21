@@ -17,17 +17,21 @@ worth keeping. Routine choices are not listed.
 - [The core is venue-agnostic, and venue code lives at the edges](#the-core-is-venue-agnostic-and-venue-code-lives-at-the-edges)
 - [Messages use natural alignment, not packing](#messages-use-natural-alignment-not-packing)
 - [Every message is value-initialized](#every-message-is-value-initialized)
-- [Array fields are `std::array`](#array-fields-are-stdarray)
 - [Layout and trait checks live in the contracts tests, not the headers](#layout-and-trait-checks-live-in-the-contracts-tests-not-the-headers)
+- [Bars come from the venue, not from our trade stream](#bars-come-from-the-venue-not-from-our-trade-stream)
 - [Timestamps are monotonic, never the CPU cycle counter](#timestamps-are-monotonic-never-the-cpu-cycle-counter)
 - [A cancel is a request, not a state change](#a-cancel-is-a-request-not-a-state-change)
 - [A replace reuses the order id](#a-replace-reuses-the-order-id)
+- [A strategy can withdraw or amend its own order](#a-strategy-can-withdraw-or-amend-its-own-order)
+- [A strategy may read its own fills](#a-strategy-may-read-its-own-fills)
+- [A client order id carries the strategy in its top 16 bits](#a-client-order-id-carries-the-strategy-in-its-top-16-bits)
 - [Duplicate fills are detected with a cumulative counter](#duplicate-fills-are-detected-with-a-cumulative-counter)
 - [Fees travel on the wire, and a simulation marks its own](#fees-travel-on-the-wire-and-a-simulation-marks-its-own)
 - [Python runs in its own process](#python-runs-in-its-own-process)
 - [Strategies are registered at build time, not loaded at runtime](#strategies-are-registered-at-build-time-not-loaded-at-runtime)
 - [Signals and orders are separate channels](#signals-and-orders-are-separate-channels)
 - [L3 checks canonical limits only](#l3-checks-canonical-limits-only)
+- [A zeroed time in force is rejected, not defaulted](#a-zeroed-time-in-force-is-rejected-not-defaulted)
 - [The venue is authoritative, and trading fails closed](#the-venue-is-authoritative-and-trading-fails-closed)
 - [The audit log is written by its own process](#the-audit-log-is-written-by-its-own-process)
 - [Ledger adjustments are recorded before they are applied](#ledger-adjustments-are-recorded-before-they-are-applied)
@@ -72,8 +76,8 @@ rule has to be followed rather than checked.
 
 **Overflow is prevented at the boundary, not handled in the arithmetic.** `MulDiv` narrows a
 128-bit result back to `int64_t`, and does not check whether it fits. The precondition is enforced
-upstream: L3 rejects an order larger than `max_order_qty` at its check 4, and the price collar at
-its check 5 bounds price, so no admissible pair of operands can overflow. With quantity capped at
+upstream: L3 rejects an order larger than `max_order_qty` at its check 5, and the price collar at
+its check 6 bounds price, so no admissible pair of operands can overflow. With quantity capped at
 1.0, the price would need nineteen digits to overflow the result. The residual dependency is that
 mid is sane, which is L1's job.
 
@@ -134,21 +138,6 @@ rejected because a field reorder would silently invalidate it while still compil
 
 See `contracts.md`, "Every message is value-initialized before use".
 
-## Array fields are `std::array`
-
-**Problem.** A fixed-length array field can be a C array (`T name[N]`) or a `std::array<T, N>`. Both
-have the same size, layout, and codegen, so the choice is a convention and not a performance
-decision. Leaving it open let `BookSnapshotMsg` use `std::array` while `ReconResultMsg` used a C
-array, against the same documentation notation.
-
-**Decision.** Use `std::array<T, N>` for every array field, and write it that way in the docs.
-
-**Consequence.** The length is part of the type, so one `static_assert` on the field pins it and the
-field carries `.size()`. In exchange, the field declaration is longer, so the layout blocks in
-`contracts.md` are wider.
-
-See `contracts.md`, "Messages are fixed-size and own nothing".
-
 ## Layout and trait checks live in the contracts tests, not the headers
 
 **Problem.** The wire layout is pinned with `static_assert`: a size, a field offset, and three
@@ -168,6 +157,25 @@ only when the contracts tests build. A build that skips the tests no longer self
 which is accepted because CI always builds them.
 
 See `tests/unit/contracts/`, and `contracts.md`, "Natural alignment, no packing".
+
+## Bars come from the venue, not from our trade stream
+
+**Problem.** A strategy that decides on a five-minute bar needs years of history to test, and the
+same bar definition live, or its backtest is fiction. Building bars from trades gives control over
+the window and no delay after each boundary. Importing the venue's candles gives years of history
+for free but inherits the venue's alignment and a short delay after each boundary.
+
+**Decision.** One definition, the venue's. L1 subscribes to the venue's kline stream and publishes
+closed candles as market data on `md`. A historical importer pulls the same candles over REST for
+backtests and warm-up. Bars built from our own trades are not in v1.
+
+**Consequence.** Backtest and live see the same bars arriving at the same point in the stream, so
+the backtest cannot hide the delay. Decisions land after the venue publishes rather than at the
+boundary, which costs nothing at a medium-frequency cadence. The venue's boundary rule and volume
+accounting become ours as well. Two definitions with a provenance flag stay available if the delay
+ever matters.
+
+See `phases.md`, P4.
 
 ## Timestamps are monotonic, never the CPU cycle counter
 
@@ -216,6 +224,57 @@ does not fire on correct behaviour. A safety mechanism that fires on correct beh
 operator to ignore it.
 
 See `contracts.md`, `ReplaceOrderMsg`.
+
+## A strategy can withdraw or amend its own order
+
+**Problem.** A strategy could place an order and never touch it again. At a medium frequency an
+entry rests for minutes, so a setup that dies leaves the order working into a worse market.
+
+**Decision.** L2 publishes a request on `signals` carrying the `signal_id` of the order it wants
+withdrawn or amended. L3 looks up the order it created for that signal and republishes the existing
+`CancelOrderMsg` or `ReplaceOrderMsg` on `orders`. The order messages, their layout, and their
+ledger rules do not change.
+
+**Consequence.** A withdraw needs no risk approval, because it only reduces exposure, and it works
+while the kill switch is latched, since the latch blocks new orders rather than exits. Because L3
+now sees every withdraw, its open-order count becomes exact. The strategy stays blind to client
+order ids and to venue details, and the cancel-replace race at the venue is untouched, which is why
+amend matters only for a strategy that re-quotes.
+
+See `phases.md`, P7.
+
+## A strategy may read its own fills
+
+**Problem.** L2 acted open-loop. It could not tell whether its last order filled, so it could not
+size the next decision, and after a restart it knew nothing about what it owned.
+
+**Decision.** L2 reads `fills` and keeps the reports addressed to its own strategy, decoded from the
+client order id. At startup it replays the log tail to rebuild its position before it decides. The
+authoritative position stays in L4, and enforcement stays in L3.
+
+**Consequence.** A strategy can hold orders that rest, size from what it owns, and survive a
+restart. The cost is two layers holding a position in the same instrument, so the rule is written
+down: L2's view is for sizing, never for enforcement, and a strategy that miscounts cannot exceed a
+limit because L3 checks its own mirror.
+
+See `phases.md`, P9 and P12.
+
+## A client order id carries the strategy in its top 16 bits
+
+**Problem.** An execution report names its order by `client_order_id` and carries no strategy id, so
+a strategy reading `fills` could not tell which reports were its own without a table mapping ids to
+strategies. A table lives in one process, and a restarted gateway would lose it.
+
+**Decision.** `client_order_id` uses the same layout as `signal_id`. The top 16 bits hold the
+`strategy_id` and the low 48 hold a per-strategy counter, so any layer decodes the strategy with one
+shift.
+
+**Consequence.** Attribution needs no new field, no table, and no coordination between processes,
+because each strategy owns its own 16-bit namespace. The id stops being opaque, so the layout is
+load-bearing: a test decodes a generated id, no other meaning is ever packed into it, and the
+counter must not repeat after a restart, which the startup log replay recovers.
+
+See `contracts.md`, "Order and signal identity".
 
 ## Duplicate fills are detected with a cumulative counter
 
@@ -388,13 +447,14 @@ command must send orders, and an order must name a venue, so "bring this positio
 not say where each order should go. The default, a wildcard venue, is claimed by one gateway,
 which under-flattens one venue and can over-flatten another.
 
-**Decision.** The ledger keeps a per-venue split alongside the canonical aggregate, fed from the
-venue id already present on every execution report. The canonical quantity stays the risk
-aggregate. A flatten emits one order per non-zero venue leg, each naming its venue.
+**Decision.** The ledger stores one leg per (venue, instrument), fed from the venue id already on
+every execution report, and derives the canonical position as their sum. A flatten emits one order
+per non-zero venue leg, each naming its venue.
 
 **Consequence.** Flatten is correct in a multi-venue deployment, and its retry rule applies per
-leg rather than per canonical position. The cost is extra ledger state, which must reconcile
-against the canonical aggregate so it does not become a second source of truth for exposure.
+leg. The canonical position keeps no separate record, so it cannot disagree with the legs. The
+cost is that a canonical average entry is only an aggregate: when two legs point in opposite
+directions it is not meaningful on its own, so P&L is computed per leg against that leg's basis.
 
 See `layers.md`, L4 and L5.
 

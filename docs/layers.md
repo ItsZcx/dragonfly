@@ -37,7 +37,8 @@ It turns venue-specific data into canonical messages and maintains a local order
 
 - **Consumes:** the venue's data feed, which is a socket in production and a historical log in
   backtest. It also consumes `control` for snapshot requests.
-- **Produces:** `TradeMsg`, `QuoteMsg`, `BookDeltaMsg`, and `BookSnapshotMsg` on `md`.
+- **Produces:** `TradeMsg`, `QuoteMsg`, `BookDeltaMsg`, and `BookSnapshotMsg` on `md`, plus the
+  venue's closed candles as bars on the same channel.
 
 L1 has two ports. The outbound port publishes market data. The inbound port receives the resync
 request on `control`. The inbound port is easy to miss, because L1 is the only hot-path process
@@ -129,11 +130,14 @@ It turns market observations into trading intentions.
 
 ### Consumes and produces
 
-- **Consumes:** market data on `md`, and risk rejections on `risk_events` for information only.
+- **Consumes:** market data on `md`, its own execution reports on `fills`, and risk rejections on
+  `risk_events` for information only.
 - **Produces:** `AlphaSignalMsg` on `signals`.
 
-L2 does not consume its own fills in the decision loop. A strategy whose correctness depends on
-its own fill status is usually doing risk management, which belongs in L3 (risk) or L4 (OMS).
+L2 reads `fills` for its own orders, and uses them to size the next decision. It never enforces a
+limit with them: enforcement is L3's, and the authoritative position is L4's, so a strategy that
+miscounts what it owns still cannot exceed a cap. At startup L2 replays the log tail to rebuild its
+position before it decides.
 
 ### How it works
 
@@ -420,13 +424,13 @@ L4 produces nothing on the hot path.
 
 #### What it holds
 
-- **Positions**, per canonical instrument: signed net quantity, where positive is long and
-  negative is short, plus average entry price, realised P&L, fees paid, and the last mark price.
-  Positions are keyed by canonical id and never by venue listing, so exposure on any venue counts
-  toward one limit and cannot be evaded by splitting across venues. The average entry price is
-  stored as an **unsigned magnitude**, because direction lives only in the net quantity. Signing
-  both would multiply two negatives in the weighted-average calculation and silently corrupt the
-  basis on every short.
+- **Positions**, as one leg per (venue, instrument): signed net quantity, where positive is long
+  and negative is short, plus average entry price, realised P&L, fees paid, and the last mark
+  price. The canonical position per instrument is the sum of its legs, and it is what risk limits
+  and attribution read, so exposure on any venue counts toward one limit and cannot be evaded by
+  splitting across venues. Each leg's average entry price is stored as an **unsigned magnitude**,
+  because direction lives only in the net quantity. Signing both would multiply two negatives in
+  the weighted-average calculation and silently corrupt the basis on every short.
 - **Cash**, per settlement currency: `settled` and `reserved`. Available is always *derived* as
   `settled − reserved`, never stored, because storing it would create a second place for the same
   fact to become stale.
@@ -618,9 +622,10 @@ leave an order the ledger believes is live but which was never transmitted.
 #### Venue routing
 
 Each instance knows its own venue id and ignores orders addressed elsewhere, so any number of
-gateways can subscribe to the same `orders` channel without coordination. An order with a wildcard
-venue id is claimed by whichever gateway receives it. An order naming a venue is acted on only by
-that venue.
+gateways can subscribe to the same `orders` channel without coordination. An order naming a venue is
+acted on only by that venue. An order with a wildcard venue id is claimed by whichever gateway
+receives it, which is unambiguous only while one gateway subscribes. With two, both would claim it,
+and that case is open in `open-questions.md`.
 
 ### What it must not do
 

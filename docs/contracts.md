@@ -70,8 +70,8 @@ uint64_t ts_ns;    // 16 .. 24   the producer's monotonic timestamp
 uint64_t seq_num;  // 24 .. 32   per-producer message counter
 ```
 
-A message's total size is always `32 + body`. This is why the sizes below read as 40, 48, 64, 80, and
-so on.
+A message's total size is always `32 + body`. This is why the sizes below read as 40, 48, 64, 80,
+and so on.
 
 ### Field by field
 
@@ -116,12 +116,12 @@ The blocks and the families are two different groupings. The message set below h
 The blocks number eight, because `RiskRejectMsg` travels on `risk_events` while `AlphaSignalMsg`
 travels on `signals`, and the document places both in the signals family.
 
-**`MsgType::None` is 0, and code 0 is never a message.** A message is value-initialized as `T m{}` before
-its fields are written, which sets `msg_type` to zero (see "Every message is value-initialized
-before use"). A zeroed buffer, a truncated read, or a slot that was never written would otherwise
-decode as a real message of whatever type zero names. `RiskRejectReason`, `VenueId`, `TimeInForce`,
-`ReconMismatch`, `ReconOutcome`, and `ReconStatus` reserve zero for the same reason: a zeroed field
-must not be usable as it stands.
+**`MsgType::None` is 0, and code 0 is never a message.** A message is value-initialized as `T m{}`
+before its fields are written, which sets `msg_type` to zero (see "Every message is
+value-initialized before use"). A zeroed buffer, a truncated read, or a slot that was never written
+would otherwise decode as a real message of whatever type zero names. `RiskRejectReason`, `VenueId`,
+`TimeInForce`, `ReconMismatch`, `ReconOutcome`, and `ReconStatus` reserve zero for the same reason:
+a zeroed field must not be usable as it stands.
 
 A consumer switches on the tag, because a channel is a transport and not a type. Five of the eight
 channels carry more than one body, and several processes write to `md` and `control`. The audit
@@ -227,7 +227,6 @@ not pedantry. Handling the two rows the wrong way round produces either a resync
 restart is misread as a gap, or silent data loss, where a gap is misread as a restart. A restart
 is normal traffic. It is logged, the resync follows, and it is not treated as an error.
 
----
 
 ## Conventions that apply to every message
 
@@ -366,9 +365,9 @@ ingestion latency.
 
 A body field that repeats `hdr.ts_ns` gives one fact two homes, and the second goes stale. That is
 why no message carries a field such as `sent_ts_ns`: publishing `NewOrderMsg` is the act of sending
-the order, and `hdr.ts_ns` is that instant. The ledger adjustments are the sharpest case, because the
-publish precedes the apply: see
-[Ledger adjustments](#ledger-adjustments--l4-oms-to-the-recorder-and-l6).
+the order, and `hdr.ts_ns` is that instant. The ledger adjustments are the sharpest case, because
+the publish precedes the apply: see [Ledger
+adjustments](#ledger-adjustments--l4-oms-to-the-recorder-and-l6).
 
 A component uses the clock in two distinct ways, and they must not be confused.
 
@@ -417,19 +416,25 @@ and cannot be split across venues to evade it. Sixteen messages carry the field.
 
 | Message                                                   | `0` means                                                                              |
 | --------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| the three order messages                                  | any venue. The gateway that receives the order claims it, and other gateways ignore it |
+| the three order messages                                  | any venue. See the paragraph below                                                     |
 | `ReconRequestMsg`                                         | every venue this system trades                                                         |
 | `OrderAbandonedMsg`                                       | the order never reached a venue                                                        |
 | `ExecutionReportMsg`, `ReconResultMsg`, `ReconVerdictMsg` | nothing. A report or a claim always comes from one venue, so `0` is invalid            |
 | `PositionAdoptedMsg`, `BasisAdoptedMsg`                   | nothing. See the paragraph below                                                       |
 
+With `0` on an order, the gateway that receives it claims it and the others ignore it. That is
+unambiguous while exactly one gateway subscribes to `orders`. With two gateways both would claim
+the same order, and nothing yet says which one wins, so a deployment with more than one venue needs
+an explicit venue id on the order. That gap is open in `open-questions.md`.
+
 It is a `VenueId`. `0` is `VenueId::Any`, and `1` to `99` are reserved so that a stale config or a
 truncated read cannot resolve to a live venue. [Venue identity](#venue-identity) has the rest.
 
-On the two adoption messages, the field names the venue whose claim was adopted. It is the only link
-from a ledger change to the venue that caused it: the recorder covers `ledger` and not `recon`, so
-`recon_id` points at a pass the log does not contain, and one pass can cover several venues. Whether
-the field also names the per-venue position leg is unresolved, and `open-questions.md` tracks it as P7.
+On the two adoption messages, the field names the venue whose claim was adopted, and with it the
+position leg that the adoption replaces, because the ledger keeps one leg per (venue, instrument).
+It is the only link from a ledger change to the venue that caused it: the recorder covers `ledger`
+and not `recon`, so `recon_id` points at a pass the log does not contain, and one pass can cover
+several venues.
 
 ### Order and signal identity
 
@@ -438,8 +443,15 @@ signal, and it is unique system-wide. It is the ledger's primary key, so order r
 reconciliation all join on it. `ReplaceOrderMsg` reuses the id of the order it amends and never
 generates one, because the venue treats a replace as the same order with amended terms.
 
+Its top 16 bits carry the `strategy_id` and the low 48 bits a counter for that strategy, which is
+the same split `signal_id` uses. Any layer holding the id therefore recovers the strategy with one
+shift, which is how an execution report can be attributed to a strategy without a lookup table.
+Nothing else is packed into the id, and a cancel or a replace reuses it rather than minting a new
+one.
+
 **`exchange_order_id`** is the venue's own identifier for the same order, learned from the execution
-report. It is `0` until a venue has assigned one, which never happens for an order the venue rejects.
+report. It is `0` until a venue has assigned one, which never happens for an order the venue
+rejects.
 
 **`signal_id`** is the id of a strategy's intent, and it is unique system-wide. It is the backlink
 for attribution: signal, order, fills, P&L. Its top 16 bits carry the `strategy_id`.
@@ -517,9 +529,9 @@ constant, never from a literal.
 | `kProducerGatewayCount`  | `44`            | `df/types/ids.hpp`          | ids in that range                                                                                      |
 | `kProducerReservedBase`  | `300`           | `df/types/ids.hpp`          | first reserved id. Nothing uses it yet                                                                 |
 
-The `producer_id` rows above name the same ids as the allocation table under
-[The message header](#the-message-header). A base and a count are separate constants so that no range
-is written as a literal in two places.
+The `producer_id` rows above name the same ids as the allocation table under [The message
+header](#the-message-header). A base and a count are separate constants so that no range is written
+as a literal in two places.
 
 ---
 
@@ -575,9 +587,9 @@ Three bytes of padding follow `aggressor_side`, so that `price` starts 8-byte al
 
 `instrument_id` is the canonical id that L1 (ingestion) resolved at ingress. `aggressor_side`
 identifies the taker: the side that initiated the trade, as opposed to the side that was resting. It
-is a raw integer rather than `Side`, where 0 means the buyer crossed the spread and 1 means the seller
-did. The two sets agree on the numbers and disagree on the meaning: this field names the taker, and
-`Side` names the direction of an order.
+is a raw integer rather than `Side`, where 0 means the buyer crossed the spread and 1 means the
+seller did. The two sets agree on the numbers and disagree on the meaning: this field names the
+taker, and `Side` names the direction of an order.
 
 #### `QuoteMsg` — best bid and offer (80 bytes)
 
@@ -627,7 +639,8 @@ Two bytes of padding follow `action`, so that `price_level` starts 8-byte aligne
 `side` is the book side, not `Side`. The numbers happen to agree, since a bid is 0 and a buy is 0,
 but a bid is not a buy. This field says which side of the book the level belongs to.
 
-`price_level` is the price of the level, scaled by `kScale`. It is a price, not an index into a book.
+`price_level` is the price of the level, scaled by `kScale`. It is a price, not an index into a
+book.
 
 `qty` is the size the level holds once this delta has been applied, and it says what happened on its
 own:
@@ -709,12 +722,12 @@ Four bytes of padding follow `instrument_id`.
 
 `seq_floor` is the requester's freshness floor: the **highest** sequence it has seen on this
 instrument's market-data stream. That is not the last sequence it applied, because seeing one ahead
-of its book is how it learned there is a gap. The handler's snapshot must carry a `hdr.seq_num` at or
-above this value, so the snapshot already contains whatever the lost deltas did and one request is
-enough to recover. A snapshot below the floor is discarded like a stale delta. The floor bounds the
-answer from below, and it does not say where the answer starts, because a snapshot replaces the whole
-book. The field names a sequence on another stream, not `hdr.seq_num`, which counts messages in the
-requester's own stream.
+of its book is how it learned there is a gap. The handler's snapshot must carry a `hdr.seq_num` at
+or above this value, so the snapshot already contains whatever the lost deltas did and one request
+is enough to recover. A snapshot below the floor is discarded like a stale delta. The floor bounds
+the answer from below, and it does not say where the answer starts, because a snapshot replaces the
+whole book. The field names a sequence on another stream, not `hdr.seq_num`, which counts messages
+in the requester's own stream.
 
 This is the only consumer-to-producer message in the system. A consumer that notices a sequence
 gap must ask the producing feed handler for a new snapshot. That request is a backwards edge in an
@@ -774,19 +787,21 @@ Two bytes of padding follow `reason`.
 L3 (risk) sends this back to the strategy for information and to L6 (observability) for
 diagnostics. It references the signal, not an order, because no order was created.
 
-`reason` is a code with ten values: a `None` sentinel at 0, then one value per pipeline check.
-The checks are the kill switch, rate limit, instrument suspended, market-order policy, order size,
-price collar, open order count, position limit, and daily loss. The code lets rejections be
-counted by reason. "Most rejections are rate limits" and "most rejections are collar violations"
-are different problems. The code is offset by one from the pipeline step numbers, so reason 1 is
-step 0, because 0 is the sentinel. Read the mapping from the table rather than inferring it.
+`reason` is a code with eleven values: a `None` sentinel at 0, then one value per pipeline check.
+The checks are the kill switch, time in force, rate limit, instrument suspended, market-order
+policy, order size, price collar, open order count, position limit, and daily loss. The code lets
+rejections be counted by reason. "Most rejections are rate limits" and "most rejections are collar
+violations" are different problems. The code is offset by one from the pipeline step numbers, so
+reason 1 is step 0, because 0 is the sentinel. Read the mapping from the table rather than inferring
+it.
 
 ### Orders — L3 (risk) to L4 (OMS) and L5 (EMS)
 
-Three message types travel on `orders`, and two layers publish them. `NewOrderMsg` comes from L3,
-which is the layer that approves a signal and generates the client order id. `CancelOrderMsg` and
-`ReplaceOrderMsg` come from L4, which owns the order records and is the layer that knows an order is
-stale. L5 claims whichever ones name its venue.
+Three message types travel on `orders`, and they come from two layers. `NewOrderMsg` comes from
+L3, which is the layer that approves a signal and generates the client order id. `CancelOrderMsg`
+and `ReplaceOrderMsg` come from two places: L3, when a strategy withdraws or amends an order it
+already sent, and L4, for the abandonment sweep and `CancelAll`, because the ledger is the layer
+that knows an order is stale. L5 claims whichever ones name its venue.
 
 #### `NewOrderMsg` — an approved order (80 bytes)
 
@@ -922,12 +937,12 @@ correct, but it is counted. A rising count means a venue is re-sending more than
 `fee` is signed, and **negative means a credit to us**, which is a maker rebate. It is the venue's
 own reported number, never one derived locally, because real fees drift from published schedules
 through volume tiers and promotions. A locally modelled fee is internal state that can never be
-reconciled against a venue statement. `liquidity` accompanies it because the amount and the
-reason are different facts. `fee` says what was paid. `liquidity` says whether we were
-providing or taking liquidity, which is what later analysis needs to attribute cost. Its values are 0
-for maker, 1 for taker, and 2 for unknown. It is a raw integer, not a set from
-[Shared vocabulary](#shared-vocabulary), so the values are stated here. Whether a fee
-was reported or modelled is not here. It is `kMsgFlagModelledFill` on the header.
+reconciled against a venue statement. `liquidity` accompanies it because the amount and the reason
+are different facts. `fee` says what was paid. `liquidity` says whether we were providing or taking
+liquidity, which is what later analysis needs to attribute cost. Its values are 0 for maker, 1 for
+taker, and 2 for unknown. It is a raw integer, not a set from [Shared
+vocabulary](#shared-vocabulary), so the values are stated here. Whether a fee was reported or
+modelled is not here. It is `kMsgFlagModelledFill` on the header.
 
 ### Control — every process
 
@@ -1176,13 +1191,13 @@ said so.
 ## Shared vocabulary
 
 These are the fixed sets of values that messages carry. Each one's underlying type matches the width
-of the field that carries it, so a value can be read straight from the bytes. `VenueId` is an id with
-named values rather than one of these sets, so it is defined under
-[Venue identity](#venue-identity).
+of the field that carries it, so a value can be read straight from the bytes. `VenueId` is an id
+with named values rather than one of these sets, so it is defined under [Venue
+identity](#venue-identity).
 
 Two fields carry one of these sets as a raw integer rather than through the type:
-`TradeMsg.aggressor_side` and `BookDeltaMsg.side`. Their numbers agree with `Side`; their meanings do
-not, so each is defined where it appears.
+`TradeMsg.aggressor_side` and `BookDeltaMsg.side`. Their numbers agree with `Side`; their meanings
+do not, so each is defined where it appears.
 
 ### Side
 
@@ -1350,8 +1365,8 @@ enum class ReconOutcome : uint8_t
 
 `Unknown` is a bug or a truncated read, never a real outcome. `Inconclusive` is ordinary: the venue
 was rate-limited, or its claim was truncated. Only `Matched` opens the trading gate, and zero is
-reserved as defense in depth rather than because a zeroed verdict reaches a reader, since results and
-verdicts are correlated by `recon_id` and a zeroed message is usually discarded first.
+reserved as defense in depth rather than because a zeroed verdict reaches a reader, since results
+and verdicts are correlated by `recon_id` and a zeroed message is usually discarded first.
 
 #### `ReconMismatch`
 
@@ -1370,11 +1385,12 @@ enum class ReconMismatch : uint8_t
 
 `None` is 0, and zero is reserved rather than used. A `ReconVerdictMsg` is value-initialized before
 its fields are written, so a zeroed buffer or a truncated read leaves `mismatch_class` at 0, and
-reserving zero stops that value from naming a disagreement. `MsgType::None` is 0 for the same reason;
-see [Every message is value-initialized before use](#every-message-is-value-initialized-before-use).
+reserving zero stops that value from naming a disagreement. `MsgType::None` is 0 for the same
+reason; see [Every message is value-initialized before
+use](#every-message-is-value-initialized-before-use).
 
-The class is worth reading only when `outcome` is `Mismatch`. The meaning, severity, and resolution of
-the six real classes are in the table under
+The class is worth reading only when `outcome` is `Mismatch`. The meaning, severity, and resolution
+of the six real classes are in the table under
 [`ReconVerdictMsg`](#reconverdictmsg--the-comparisons-outcome-64-bytes).
 
 #### `ReconStatus`

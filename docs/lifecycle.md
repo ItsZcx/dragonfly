@@ -67,9 +67,9 @@ over its own request.
    report with `filled_qty=0.2` and `cumulative_qty=0.2`. L4 applies it, deducts cash, adds the
    fee, updates the position, and moves the order to `partially filled`. L4's record now says
    `filled_qty = 0.2`, and the next report's `cumulative_qty` is compared against that.
-4. **A cancel is sent.** Perhaps the strategy's condition changed. L4 sends a `CancelOrderMsg`.
-   L4 does **not** release the reservation yet, because a cancel is a request. The order moves to
-   `pending cancel`.
+4. **A cancel is sent.** Perhaps the strategy's condition changed. The strategy's withdraw request
+   reaches L3, which publishes a `CancelOrderMsg` naming the order. L4 does **not** release the
+   reservation yet, because a cancel is a request. The order moves to `pending cancel`.
 5. **The venue confirms.** It reports "cancelled, 0.2 filled in total". L5 publishes a terminal
    report with `status=cancelled`. L4 marks the order `cancelled` and releases the reservation for
    the unfilled 0.3.
