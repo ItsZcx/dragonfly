@@ -14,7 +14,6 @@ struct OrderAbandonedMsg
     std::uint64_t client_order_id;
     std::uint32_t instrument_id;
     std::uint32_t venue_id;
-    std::uint64_t applied_ts_ns;
 };
 
 struct PositionAdoptedMsg
@@ -25,7 +24,6 @@ struct PositionAdoptedMsg
     std::uint32_t instrument_id;
     std::uint32_t venue_id;
     std::int64_t  new_net_qty;  // the adopted position
-    std::uint64_t applied_ts_ns;
 };
 
 struct BasisAdoptedMsg
@@ -36,7 +34,6 @@ struct BasisAdoptedMsg
     std::uint32_t instrument_id;
     std::uint32_t venue_id;
     std::int64_t  new_avg_entry;  // the adopted cost basis
-    std::uint64_t applied_ts_ns;
 };
 
 }  // namespace df::msg

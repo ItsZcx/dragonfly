@@ -1,7 +1,5 @@
 # Contracts: the data
 
-**Audience:** anyone reading, writing, or debugging a message, and anyone implementing a layer.
-
 This is the authoritative description of the wire format. Every field here is pinned by a
 `static_assert` in the contracts tests, under `tests/unit/contracts/`. Where this document and the
 code disagree, the code wins.
@@ -24,6 +22,14 @@ mean.
   - [Every message is value-initialized before use](#every-message-is-value-initialized-before-use)
   - [Timestamps](#timestamps)
   - [The header is on every message](#the-header-is-on-every-message)
+- [Common fields](#common-fields)
+  - [Instrument](#instrument)
+  - [Venue](#venue)
+  - [Order and signal identity](#order-and-signal-identity)
+  - [Reconciliation and ledger identity](#reconciliation-and-ledger-identity)
+  - [Quantities and prices](#quantities-and-prices)
+- [Constants](#constants)
+- [IDs and helper types](#ids-and-helper-types)
 - [The message set](#the-message-set)
   - [Market data: L1 produces](#market-data--l1-ingestion-produces)
   - [Signals: L2 to L3](#signals--l2-strategy-to-l3-risk)
@@ -33,6 +39,12 @@ mean.
   - [Reconciliation: L4 and L5, reported to L6](#reconciliation--l4-oms-and-l5-ems-reported-to-l6)
   - [Ledger adjustments: L4 to the recorder and L6](#ledger-adjustments--l4-oms-to-the-recorder-and-l6)
 - [Shared vocabulary](#shared-vocabulary)
+  - [Side](#side)
+  - [OrderType](#ordertype)
+  - [TimeInForce](#timeinforce)
+  - [OrderStatus](#orderstatus)
+  - [ProcessState](#processstate)
+  - [KillCommand](#killcommand)
   - [Reconciliation](#reconciliation)
   - [Venue identity](#venue-identity)
   - [Pre-trade rejection reasons](#pre-trade-rejection-reasons)
@@ -56,8 +68,8 @@ uint64_t ts_ns;    // 16 .. 24   the producer's monotonic timestamp
 uint64_t seq_num;  // 24 .. 32   per-producer message counter
 ```
 
-A message's total size is always `32 + body`. This is why the sizes below read as 48, 64, 88, and
-so on.
+A message's total size is always `32 + body`. This is why the sizes below read as 40, 48, 64, 80,
+and so on.
 
 ### Field by field
 
@@ -94,19 +106,16 @@ block stays free for the next body on that channel.
 | 82   | `PositionAdoptedMsg`     | `ledger`      |
 | 83   | `BasisAdoptedMsg`        | `ledger`      |
 
-Eight blocks are in use, `10` to `89`. Codes `0` to `9` and every code from `90` up are unused,
-and stay available for a new message. A code that already names a message never gets another one,
+A code that already names a message never gets another one,
 because the log stores messages verbatim and an old log would then decode as the wrong type.
 
 The blocks and the families are two different groupings. The message set below has seven families.
 The blocks number eight, because `RiskRejectMsg` travels on `risk_events` while `AlphaSignalMsg`
 travels on `signals`, and the document places both in the signals family.
 
-**Code 0 is reserved and is never a message.** A message is value-initialized as `T m{}` before
-its fields are written, which sets `msg_type` to zero (see "Every message is value-initialized
-before use"). A zeroed buffer, a truncated read, or a slot that was never written would otherwise
-decode as a real message of whatever type zero names. `RiskRejectReason`, `VenueId`,
-`ReconMismatch`, `ReconOutcome`, and `ReconStatus` reserve zero for the same reason.
+**`MsgType::None` is 0, and code 0 is never a message.** A message is value-initialized as `T m{}`
+before its fields are written, which sets `msg_type` to zero (see [Every message is value-initialized before use](#every-message-is-value-initialized-before-use)). `RiskRejectReason`, `VenueId`,
+`TimeInForce`, `ReconMismatch`, `ReconOutcome`, and `ReconStatus` reserve zero for the same reason.
 
 A consumer switches on the tag, because a channel is a transport and not a type. Five of the eight
 channels carry more than one body, and several processes write to `md` and `control`. The audit
@@ -212,13 +221,12 @@ not pedantry. Handling the two rows the wrong way round produces either a resync
 restart is misread as a gap, or silent data loss, where a gap is misread as a restart. A restart
 is normal traffic. It is logged, the resync follows, and it is not treated as an error.
 
----
 
 ## Conventions that apply to every message
 
 ### Numbers are fixed-point integers
 
-Prices and quantities are signed 64-bit integers scaled by `kScale = 1_000_000_000` (1e9).
+Prices and quantities are signed 64-bit integers scaled by `kScale = 1'000'000'000` (1e9).
 
 ```
 $105.50      →  105_500_000_000
@@ -334,10 +342,26 @@ and a field-order regression at once.
 
 ### Timestamps
 
-| Kind                | Field            | Clock                      | Rewritten on replay?         |
-| ------------------- | ---------------- | -------------------------- | ---------------------------- |
-| Internal event time | `hdr.ts_ns`      | monotonic, read at publish | **No**, republished verbatim |
-| Venue time          | `exchange_ts_ns` | the venue's own            | No                           |
+A message carries one timestamp of ours, in its header, and at most one of the venue's. Replay
+republishes each of them verbatim.
+
+| Field            | Where                                             | Clock           | Records                                                |
+| ---------------- | ------------------------------------------------- | --------------- | ------------------------------------------------------ |
+| `hdr.ts_ns`      | every message                                     | ours, monotonic | when the producer published the message                |
+| `exchange_ts_ns` | the market-data messages and `ExecutionReportMsg` | the venue's     | when the venue says the event happened                 |
+| `venue_ts_ns`    | `ReconResultMsg`                                  | the venue's     | when the venue produced its claim about one instrument |
+
+**Our publish time lives in `hdr.ts_ns` and nowhere else.** A body field holds a timestamp only when
+that timestamp comes from another clock, and the venue has one of those. `layers.md`, L1 states the
+rule for market data: L1 timestamps each event twice, keeps the venue's time verbatim, and puts the
+monotonic receive time in the header, so neither overwrites the other and their difference is the
+ingestion latency.
+
+A body field that repeats `hdr.ts_ns` gives one fact two homes, and the second goes stale. That is
+why no message carries a field such as `sent_ts_ns`: publishing `NewOrderMsg` is the act of sending
+the order, and `hdr.ts_ns` is that instant. The ledger adjustments are the sharpest case, because
+the publish precedes the apply: see [Ledger
+adjustments](#ledger-adjustments--l4-oms-to-the-recorder-and-l6).
 
 A component uses the clock in two distinct ways, and they must not be confused.
 
@@ -357,8 +381,178 @@ engine was never in the log, so its producer is genuine and stamps its own times
 
 ### The header is on every message
 
-Every message is a `MsgHeader` followed by its body. The offsets in the next section continue from
-32.
+Every message is a `MsgHeader` followed by its body. The offsets in the message sections below
+continue from 32.
+
+---
+
+## Common fields
+
+These fields appear in more than one message, so they are defined here once, and the message
+sections refer back to this one.
+
+Every field is a raw integer. The strong types that name them are under
+[IDs and helper types](#ids-and-helper-types).
+
+### Instrument
+
+**`instrument_id`** is the canonical instrument: the economic asset, such as BTC against USDT, and
+not one venue's contract for it. L1 (ingestion) resolves the venue's symbol to this integer once, at
+ingress, and no layer below sees the venue's string again. It matches a `canonical_id` in
+`config/instruments.yaml`, where `1` to `999` are reserved.
+
+Positions and P&L aggregate on this id, so the same asset held on three venues answers to one limit
+and cannot be split across venues to evade it. Sixteen messages carry the field.
+
+### Venue
+
+**`venue_id`** says which venue a message concerns. What `0` means depends on who publishes it.
+
+| Message                                                   | `0` means                                                                              |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| the three order messages                                  | any venue. See the paragraph below                                                     |
+| `ReconRequestMsg`                                         | every venue this system trades                                                         |
+| `OrderAbandonedMsg`                                       | the order never reached a venue                                                        |
+| `ExecutionReportMsg`, `ReconResultMsg`, `ReconVerdictMsg` | nothing. A report or a claim always comes from one venue, so `0` is invalid            |
+| `PositionAdoptedMsg`, `BasisAdoptedMsg`                   | nothing. See the paragraph below                                                       |
+
+With `0` on an order, the gateway that receives it claims it and the others ignore it. That is
+unambiguous while exactly one gateway subscribes to `orders`. With two gateways both would claim
+the same order, and nothing yet says which one wins, so a deployment with more than one venue needs
+an explicit venue id on the order. That gap is open in `open-questions.md`.
+
+It is a `VenueId`. `0` is `VenueId::Any`, and `1` to `99` are reserved so that a stale config or a
+truncated read cannot resolve to a live venue. [Venue identity](#venue-identity) has the rest.
+
+On the two adoption messages, the field names the venue whose claim was adopted, and with it the
+position leg that the adoption replaces, because the ledger keeps one leg per (venue, instrument).
+It is the only link from a ledger change to the venue that caused it: the recorder covers `ledger`
+and not `recon`, so `recon_id` points at a pass the log does not contain, and one pass can cover
+several venues.
+
+### Order and signal identity
+
+**`client_order_id`** is our identifier for an order. L3 (risk) generates it when it approves a
+signal, and it is unique system-wide. It is the ledger's primary key, so order records, fills, and
+reconciliation all join on it. `ReplaceOrderMsg` reuses the id of the order it amends and never
+generates one, because the venue treats a replace as the same order with amended terms.
+
+Its top 16 bits carry the `strategy_id` and the low 48 bits a counter for that strategy, which is
+the same split `signal_id` uses. Any layer holding the id therefore recovers the strategy with one
+shift, which is how an execution report can be attributed to a strategy without a lookup table.
+Nothing else is packed into the id, and a cancel or a replace reuses it rather than minting a new
+one.
+
+**`exchange_order_id`** is the venue's own identifier for the same order, learned from the execution
+report. It is `0` until a venue has assigned one, which never happens for an order the venue
+rejects.
+
+**`signal_id`** is the id of a strategy's intent, and it is unique system-wide. It is the backlink
+for attribution: signal, order, fills, P&L. Its top 16 bits carry the `strategy_id`.
+
+**`strategy_id`** names the strategy that produced a signal or an order, and its ceiling is
+`kMaxStrategyId`. It repeats what the top 16 bits of `signal_id` already hold, deliberately, so that
+per-strategy limits and attribution read it directly instead of shifting an id on the hot path.
+
+### Reconciliation and ledger identity
+
+**`recon_id`** identifies one reconciliation pass. The requester assigns it, and every result and
+verdict for that pass echoes it. Results are asynchronous and rate-limited, so a reply to a
+superseded pass must be recognisable and discarded rather than allowed to corrupt a fresh pass.
+
+**`adjustment_id`** identifies one ledger adjustment, and increases by one per producer, so a
+duplicate or an out-of-order delivery is detectable. It is not an ordering guarantee by itself: that
+guarantee is the rule that L4 publishes an adjustment before it applies it, described under
+[Ledger adjustments](#ledger-adjustments--l4-oms-to-the-recorder-and-l6).
+
+### Quantities and prices
+
+Every price, and every quantity that measures an amount of an instrument or of cash, is a signed
+64-bit integer scaled by `kScale`. See [Numbers are fixed-point
+integers](#numbers-are-fixed-point-integers). Counts, such as `venue_open_orders`, `bid_levels`, and
+`venue_order_ids_present`, are plain integers and are not scaled.
+
+Quantities, counts, and fees follow these conventions.
+
+- A quantity to trade, or a size resting at a price such as `Level.qty`, is positive. Direction
+  lives in a `side` field, or in the side of the book the level belongs to.
+- A net quantity is signed, and negative means short. This covers `new_net_qty` and `venue_net_qty`.
+- `qty_delta` and `order_delta` are signed, and each is the local figure minus the venue's.
+- `fee` is signed, and negative means a rebate to us.
+
+Prices are positive. Two values mean something other than a price.
+
+| Field                                             | Value | Meaning                            |
+| ------------------------------------------------- | ----- | ---------------------------------- |
+| `NewOrderMsg.price`, `AlphaSignalMsg.limit_price` | `0`   | a market order, which has no price |
+| `ExecutionReportMsg.fill_price`                   | `0`   | the report carries no fill         |
+
+The cost basis, `new_avg_entry` and `venue_avg_entry`, is a **magnitude** and never negative. L4
+stores a position's basis that way on purpose: direction lives only in the net quantity, and signing
+both would multiply two negatives in the weighted average and corrupt the basis on every short
+(`layers.md`, L4). A flat position has a basis of zero.
+
+---
+
+## Constants
+
+Every fixed number the wire format depends on. A field that comes from a constant is set from that
+constant, never from a literal.
+
+| Constant                 | Value           | Header                      | What it is                                                                                             |
+| ------------------------ | --------------- | --------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `kScale`                 | `1'000'000'000` | `df/types/fixed.hpp`        | the fixed-point scale. Every scaled value in this document uses it                                     |
+| `kMsgFlagModelledFill`   | `1 << 0`        | `df/msg/header.hpp`         | bit 0 of `MsgHeader.flags`: the fee was modelled, not reported by a venue                              |
+| `kBookDepth`             | `64`            | `df/msg/market_data.hpp`    | levels per side in `BookSnapshotMsg`, and the ceiling on `bid_levels` and `ask_levels`                 |
+| `kVenueOrderClaimMax`    | `64`            | `df/msg/reconciliation.hpp` | order ids in `ReconResultMsg.venue_order_ids`, and the ceiling on `venue_order_ids_present`            |
+| `kMaxStrategyId`         | `65'535`        | `df/types/ids.hpp`          | the ceiling on `strategy_id`. It fills the top 16 bits of `signal_id`, so a larger value would collide |
+| `kProducerFeedHandler`   | `1`             | `df/types/ids.hpp`          | `producer_id` of the primary venue's feed handler                                                      |
+| `kProducerStrategy`      | `2`             | `df/types/ids.hpp`          | `producer_id` of the canonical strategy process                                                        |
+| `kProducerRisk`          | `3`             | `df/types/ids.hpp`          | `producer_id` of the risk engine                                                                       |
+| `kProducerOms`           | `4`             | `df/types/ids.hpp`          | `producer_id` of the OMS                                                                               |
+| `kProducerEms`           | `5`             | `df/types/ids.hpp`          | `producer_id` of the primary venue's gateway                                                           |
+| `kProducerMonitor`       | `6`             | `df/types/ids.hpp`          | `producer_id` of the monitor                                                                           |
+| `kProducerTelemetry`     | `7`             | `df/types/ids.hpp`          | `producer_id` of the telemetry process                                                                 |
+| `kProducerReplay`        | `8`             | `df/types/ids.hpp`          | `producer_id` of the replay harness                                                                    |
+| `kProducerRecorder`      | `9`             | `df/types/ids.hpp`          | `producer_id` of the audit recorder                                                                    |
+| `kProducerStrategyBase`  | `100`           | `df/types/ids.hpp`          | first id of the strategy-instance range                                                                |
+| `kProducerStrategyCount` | `100`           | `df/types/ids.hpp`          | ids in that range                                                                                      |
+| `kProducerFeedBase`      | `200`           | `df/types/ids.hpp`          | first id of the additional-feed-handler range                                                          |
+| `kProducerFeedCount`     | `56`            | `df/types/ids.hpp`          | ids in that range                                                                                      |
+| `kProducerGatewayBase`   | `256`           | `df/types/ids.hpp`          | first id of the additional-gateway range                                                               |
+| `kProducerGatewayCount`  | `44`            | `df/types/ids.hpp`          | ids in that range                                                                                      |
+| `kProducerReservedBase`  | `300`           | `df/types/ids.hpp`          | first reserved id. Nothing uses it yet                                                                 |
+
+The `producer_id` rows above name the same ids as the allocation table under [The message
+header](#the-message-header). A base and a count are separate constants so that no range is written
+as a literal in two places.
+
+---
+
+## IDs and helper types
+
+A message field is a raw integer. The strong types in `df/types/ids.hpp` exist for function
+arguments, not for the wire format, so the contract headers never name them. A field called
+`instrument_id` carries the `value` of an `InstrumentId`, and nothing more.
+
+| Type              | Width           | Field it names          |
+| ----------------- | --------------- | ----------------------- |
+| `ProducerId`      | `std::uint32_t` | `MsgHeader.producer_id` |
+| `InstrumentId`    | `std::uint32_t` | `instrument_id`         |
+| `SignalId`        | `std::uint64_t` | `signal_id`             |
+| `StrategyId`      | `std::uint32_t` | `strategy_id`           |
+| `ClientOrderId`   | `std::uint64_t` | `client_order_id`       |
+| `ExchangeOrderId` | `std::uint64_t` | `exchange_order_id`     |
+| `ReconId`         | `std::uint64_t` | `recon_id`              |
+| `AdjustmentId`    | `std::uint64_t` | `adjustment_id`         |
+
+`MakeStrategyId` builds a `StrategyId` from a raw integer and returns `std::nullopt` when the value
+exceeds `kMaxStrategyId`. That check holds in every build, including Release, where an `assert`
+would compile out. `VenueId` is an id with named values rather than one of these wrappers, so it
+has its own section under [Venue identity](#venue-identity).
+
+The types, and why each id is wrapped rather than passed as a plain integer, are in
+`core/types/README.md`.
 
 ---
 
@@ -373,6 +567,8 @@ These messages describe the market. They are the only thing strategies act on.
 
 #### `TradeMsg` — an executed trade (64 bytes)
 
+`df/msg/market_data.hpp`, `MsgType::Trade = 11`, on `md`.
+
 ```cpp
 uint32_t instrument_id;   // 32..36   canonical instrument id
 uint8_t  aggressor_side;  // 36..37   0 = buyer crossed the spread, 1 = seller
@@ -383,47 +579,113 @@ uint64_t exchange_ts_ns;  // 56..64   the venue's timestamp
 
 Three bytes of padding follow `aggressor_side`, so that `price` starts 8-byte aligned.
 
-`instrument_id` is the canonical id that L1 (ingestion) resolved at ingress. `aggressor_side`
-identifies the taker: the side that initiated the trade, as opposed to the side that was resting.
+`instrument_id` is the canonical id that L1 (ingestion) resolved at ingress.
+
+`aggressor_side`
+identifies the taker: the side that initiated the trade, as opposed to the side that was resting. It
+is a raw integer rather than `Side`, where 0 means the buyer crossed the spread and 1 means the
+seller did. The two sets agree on the numbers and disagree on the meaning: this field names the
+taker, and `Side` names the direction of an order.
 
 #### `QuoteMsg` — best bid and offer (80 bytes)
 
+`df/msg/market_data.hpp`, `MsgType::Quote = 12`, on `md`.
+
 ```cpp
 uint32_t instrument_id;   // 32..36
-int64_t  bid_px;          // 40..48
+int64_t  bid_price;       // 40..48
 int64_t  bid_qty;         // 48..56
-int64_t  ask_px;          // 56..64
+int64_t  ask_price;       // 56..64
 int64_t  ask_qty;         // 64..72
 uint64_t exchange_ts_ns;  // 72..80
 ```
 
-This is the top of the book only. Size accompanies price because a bid without size is
-misleading. A price with nothing behind it is not the same opportunity as one with real depth.
+Four bytes of padding follow `instrument_id`, so that `bid_price` starts 8-byte aligned.
+
+`instrument_id` is the canonical instrument, and `exchange_ts_ns` is the venue's own time. See
+[Common fields](#common-fields) and [Timestamps](#timestamps).
+
+This message is the top of the book and nothing below it. `bid_price` is the highest price a buyer
+is currently willing to pay, and `bid_qty` is the total size available at that price. `ask_price` is
+the lowest price a seller will accept, and `ask_qty` is the total size at that price. In a healthy
+book the bid sits below the ask, and the difference between them is the spread.
+
+Size accompanies price because a bid without size is misleading. A price with nothing behind it is
+not the same opportunity as one with real depth. A consumer that needs the levels below the top
+applies `BookDeltaMsg`, or asks for a `BookSnapshotMsg`.
 
 #### `BookDeltaMsg` — one price-level change (64 bytes)
+
+`df/msg/market_data.hpp`, `MsgType::BookDelta = 13`, on `md`.
 
 ```cpp
 uint32_t instrument_id;   // 32..36
 uint8_t  side;            // 36..37   0 = bid side, 1 = ask side
 uint8_t  action;          // 37..38   0 = add, 1 = modify, 2 = delete
 int64_t  price_level;     // 40..48
-int64_t  qty;             // 48..56   new size at the level (0 on delete)
+int64_t  qty;             // 48..56   the new size at the level
 uint64_t exchange_ts_ns;  // 56..64
 ```
 
-#### `BookSnapshotMsg` — a full book (2096 bytes)
+Two bytes of padding follow `action`, so that `price_level` starts 8-byte aligned.
+
+`instrument_id` is the canonical instrument and `exchange_ts_ns` is the venue's own time. See
+[Common fields](#common-fields) and [Timestamps](#timestamps).
+
+`side` is the book side, not `Side`. The numbers happen to agree, since a bid is 0 and a buy is 0,
+but a bid is not a buy. This field says which side of the book the level belongs to.
+
+`price_level` is the price of the level, scaled by `kScale`. It is a price, not an index into a
+book.
+
+`qty` is the size the level holds once this delta has been applied, and it says what happened on its
+own:
+
+- a non-zero size at a price the book does not hold is an **add**,
+- a non-zero size at a price the book does hold is a **modify**,
+- a zero size is a **delete**.
+
+Setting the level's size, rather than adding to it, is what makes a delta safe to apply twice: the
+same delta applied twice converges, where an increment would double-count.
+
+`action` labels which of those three cases the producer considered this to be. It is a hint rather
+than an instruction. A consumer derives the case from `qty` and its own book, and must not branch on
+this field, which is carried so that a feed disagreeing with the book can be diagnosed.
+
+#### `Level` — one price and the size at it (16 bytes)
+
+`df/msg/market_data.hpp`.
 
 ```cpp
-uint32_t instrument_id;      //   32..36
-uint16_t bid_levels;         //   36..38   how many of the 64 are populated
-uint16_t ask_levels;         //   38..40
-uint64_t exchange_ts_ns;     //   40..48
-std::array<Level, 64> bids;  //   48..1072   { int64_t px; int64_t qty; } best first
-std::array<Level, 64> asks;  // 1072..2096   best first
+int64_t price;  //  0..8   the price of this level, scaled
+int64_t qty;    //  8..16  the size resting at that price, scaled
+```
+
+A book is a list of these. `price` and `qty` are both fixed-point, and `qty` is positive: a level
+holds a size, not a signed position. This type is not a message, so it carries no header.
+
+#### `BookSnapshotMsg` — a full book (2096 bytes)
+
+`df/msg/market_data.hpp`, `MsgType::BookSnapshot = 14`, on `md`.
+
+```cpp
+uint32_t              instrument_id;   //   32..36
+uint16_t              bid_levels;      //   36..38   how many of the 64 are populated
+uint16_t              ask_levels;      //   38..40
+uint64_t              exchange_ts_ns;  //   40..48
+std::array<Level, 64> bids;            //   48..1072   { int64_t price; int64_t qty; } best first
+std::array<Level, 64> asks;            // 1072..2096   best first
 ```
 
 A feed handler sends this on connect and on resync, never per tick. It is the largest message in
 the system, and it is off the hot path.
+
+`bids` and `asks` are fixed at `kBookDepth` slots. `bid_levels` and `ask_levels` give the number the
+producer filled, best first. The message is value-initialized before use, so a slot past the count
+holds a zero price and a zero size, and a price of zero is not a level. A consumer therefore reads
+the first `bid_levels` entries of `bids` and the first `ask_levels` of `asks`, then stops. Walking
+all 64 inserts phantom levels at price zero, and a strategy reading depth would see size that is not
+there.
 
 **A snapshot, its deltas, the sequence numbers and the resync are one mechanism, not four
 messages.** A full book cannot be sent on every update, so a consumer is seeded with a snapshot
@@ -445,12 +707,23 @@ layout of any logged snapshots.
 
 #### `BookSnapshotRequestMsg` — request a fresh book (48 bytes)
 
+`df/msg/market_data.hpp`, `MsgType::BookSnapshotRequest = 63`, on `control`.
+
 ```cpp
 uint32_t instrument_id;  // 32..36
-uint64_t after_seq_num;  // 40..48   the snapshot must be at least this fresh
+uint64_t seq_floor;      // 40..48   the snapshot must be at least this fresh
 ```
 
 Four bytes of padding follow `instrument_id`.
+
+`seq_floor` is the requester's freshness floor: the **highest** sequence it has seen on this
+instrument's market-data stream. That is not the last sequence it applied, because seeing one ahead
+of its book is how it learned there is a gap. The handler's snapshot must carry a `hdr.seq_num` at
+or above this value, so the snapshot already contains whatever the lost deltas did and one request
+is enough to recover. A snapshot below the floor is discarded like a stale delta. The floor bounds
+the answer from below, and it does not say where the answer starts, because a snapshot replaces the
+whole book. The field names a sequence on another stream, not `hdr.seq_num`, which counts messages
+in the requester's own stream.
 
 This is the only consumer-to-producer message in the system. A consumer that notices a sequence
 gap must ask the producing feed handler for a new snapshot. That request is a backwards edge in an
@@ -463,7 +736,9 @@ services them on an off-path thread rather than the ingest thread.
 
 ### Signals — L2 (strategy) to L3 (risk)
 
-#### `AlphaSignalMsg` — trading intent (80 bytes)
+#### `AlphaSignalMsg` — trading intent (72 bytes)
+
+`df/msg/signals.hpp`, `MsgType::AlphaSignal = 21`, on `signals`.
 
 ```cpp
 uint64_t signal_id;      // 32..40   unique system-wide
@@ -471,10 +746,9 @@ uint32_t strategy_id;    // 40..44
 uint32_t instrument_id;  // 44..48   canonical id
 uint8_t  side;           // 48..49   0 = buy, 1 = sell
 uint8_t  order_type;     // 49..50   0 = limit, 1 = market
-uint8_t  tif;            // 50..51   0 = GTC, 1 = IOC, 2 = FOK
-int64_t  target_qty;     // 56..64
+uint8_t  tif;            // 50..51   0=unknown, 1=GTC, 2=IOC, 3=FOK
+int64_t  qty;            // 56..64   the quantity to trade, in the direction of `side`
 int64_t  limit_price;    // 64..72   0 = market
-uint64_t created_ts_ns;  // 72..80
 ```
 
 *(5 bytes of padding after `tif`.)*
@@ -494,13 +768,14 @@ P&L. Its top 16 bits are the `strategy_id`, so the two fields are redundant by c
 
 `limit_price == 0` is the sentinel for a market order.
 
-#### `RiskRejectMsg` — a refused signal (56 bytes)
+#### `RiskRejectMsg` — a refused signal (48 bytes)
+
+`df/msg/signals.hpp`, `MsgType::RiskReject = 31`, on `risk_events`.
 
 ```cpp
-uint64_t signal_id;       // 32..40
-uint32_t instrument_id;   // 40..44
-uint16_t reason;          // 44..46   RiskRejectReason
-uint64_t rejected_ts_ns;  // 48..56
+uint64_t signal_id;      // 32..40
+uint32_t instrument_id;  // 40..44
+uint16_t reason;         // 44..46   RiskRejectReason
 ```
 
 Two bytes of padding follow `reason`.
@@ -508,16 +783,25 @@ Two bytes of padding follow `reason`.
 L3 (risk) sends this back to the strategy for information and to L6 (observability) for
 diagnostics. It references the signal, not an order, because no order was created.
 
-`reason` is a code with ten values: a `None` sentinel at 0, then one value per pipeline check.
-The checks are the kill switch, rate limit, instrument suspended, market-order policy, order size,
-price collar, open order count, position limit, and daily loss. The code lets rejections be
-counted by reason. "Most rejections are rate limits" and "most rejections are collar violations"
-are different problems. The code is offset by one from the pipeline step numbers, so reason 1 is
-step 0, because 0 is the sentinel. Read the mapping from the table rather than inferring it.
+`reason` is a code with eleven values: a `None` sentinel at 0, then one value per pipeline check.
+The checks are the kill switch, time in force, rate limit, instrument suspended, market-order
+policy, order size, price collar, open order count, position limit, and daily loss. The code lets
+rejections be counted by reason. "Most rejections are rate limits" and "most rejections are collar
+violations" are different problems. The code is offset by one from the pipeline step numbers, so
+reason 1 is step 0, because 0 is the sentinel. Read the mapping from the table rather than inferring
+it.
 
 ### Orders — L3 (risk) to L4 (OMS) and L5 (EMS)
 
-#### `NewOrderMsg` — an approved order (88 bytes)
+Three message types travel on `orders`, and they come from two layers. `NewOrderMsg` comes from
+L3, which is the layer that approves a signal and generates the client order id. `CancelOrderMsg`
+and `ReplaceOrderMsg` come from two places: L3, when a strategy withdraws or amends an order it
+already sent, and L4, for the abandonment sweep and `CancelAll`, because the ledger is the layer
+that knows an order is stale. L5 claims whichever ones name its venue.
+
+#### `NewOrderMsg` — an approved order (80 bytes)
+
+`df/msg/orders.hpp`, `MsgType::NewOrder = 41`, on `orders`.
 
 ```cpp
 uint64_t client_order_id;  // 32..40   our id, unique system-wide
@@ -530,7 +814,6 @@ uint8_t  order_type;       // 61..62
 uint8_t  tif;              // 62..63
 int64_t  qty;              // 64..72
 int64_t  price;            // 72..80   0 = market
-uint64_t sent_ts_ns;       // 80..88
 ```
 
 One byte of alignment padding follows `tif`, so that `qty` starts at offset 64.
@@ -555,13 +838,14 @@ price, so it cannot be checked against a minimum notional, and it reserves no ca
 reservation would be a guess. Its exposure is bounded by `max_order_qty` and by the position limit
 at the next fill instead. Its true cash impact is unknown until the venue fills it.
 
-#### `CancelOrderMsg` — a cancel request (56 bytes)
+#### `CancelOrderMsg` — a cancel request (48 bytes)
+
+`df/msg/orders.hpp`, `MsgType::CancelOrder = 42`, on `orders`.
 
 ```cpp
 uint64_t client_order_id;  // 32..40
 uint32_t instrument_id;    // 40..44
 uint32_t venue_id;         // 44..48   0 = any
-uint64_t sent_ts_ns;       // 48..56
 ```
 
 **A cancel is a request, not a state change.** Sending it cancels nothing. The order moves to a
@@ -573,7 +857,9 @@ that was just spent. The venue's report is the fact. The request is not.
 This puts an obligation on L5 (EMS). It must publish an outcome for every cancel it transmits,
 including a cancel the venue rejects because the order is already gone.
 
-#### `ReplaceOrderMsg` — an amendment (72 bytes)
+#### `ReplaceOrderMsg` — an amendment (64 bytes)
+
+`df/msg/orders.hpp`, `MsgType::ReplaceOrder = 43`, on `orders`.
 
 ```cpp
 uint64_t client_order_id;  // 32..40   UNCHANGED, the id of the order being amended
@@ -581,7 +867,6 @@ uint32_t instrument_id;    // 40..44
 uint32_t venue_id;         // 44..48   0 = any
 int64_t  new_qty;          // 48..56   absolute new total quantity, not a delta
 int64_t  new_price;        // 56..64   absolute new limit price
-uint64_t sent_ts_ns;       // 64..72
 ```
 
 Only quantity and price are amendable. Side, instrument, and time-in-force are not, because venues
@@ -610,6 +895,8 @@ path by which a replace can raise exposure, so L4 (OMS) checks it against availa
 
 #### `ExecutionReportMsg` — what happened at the venue (104 bytes)
 
+`df/msg/execution.hpp`, `MsgType::ExecutionReport = 51`, on `fills`.
+
 ```cpp
 uint64_t client_order_id;    //  32..40   our order id
 uint64_t exchange_order_id;  //  40..48   the venue's order id
@@ -617,7 +904,7 @@ uint32_t instrument_id;      //  48..52
 uint32_t venue_id;           //  52..56   which venue this came from
 uint8_t  side;               //  56..57
 uint8_t  status;             //  57..58   0=new, 1=partial, 2=filled, 3=cancelled, 4=rejected
-uint8_t  liquidity_flag;     //  58..59   0=maker, 1=taker, 2=unknown
+uint8_t  liquidity;          //  58..59   0=maker, 1=taker, 2=unknown
 int64_t  filled_qty;         //  64..72   this report's increment
 int64_t  cumulative_qty;     //  72..80   total filled so far
 int64_t  fill_price;         //  80..88   0 if no fill
@@ -625,7 +912,7 @@ int64_t  fee;                //  88..96   signed, NEGATIVE = a rebate to us
 uint64_t exchange_ts_ns;     //  96..104
 ```
 
-Five bytes of padding follow `liquidity_flag`.
+Five bytes of padding follow `liquidity`.
 
 **This is the message that moves money.** It is the only input that changes positions or cash in
 the ledger. Everything else adjusts reservations.
@@ -646,22 +933,27 @@ correct, but it is counted. A rising count means a venue is re-sending more than
 `fee` is signed, and **negative means a credit to us**, which is a maker rebate. It is the venue's
 own reported number, never one derived locally, because real fees drift from published schedules
 through volume tiers and promotions. A locally modelled fee is internal state that can never be
-reconciled against a venue statement. `liquidity_flag` accompanies it because the amount and the
-reason are different facts. `fee` says what was paid. `liquidity_flag` says whether we were
-providing or taking liquidity, which is what later analysis needs to attribute cost. Whether a fee
-was reported or modelled is not here. It is `kMsgFlagModelledFill` on the header.
+reconciled against a venue statement. `liquidity` accompanies it because the amount and the reason
+are different facts. `fee` says what was paid. `liquidity` says whether we were providing or taking
+liquidity, which is what later analysis needs to attribute cost. Its values are 0 for maker, 1 for
+taker, and 2 for unknown. It is a raw integer, not a set from [Shared
+vocabulary](#shared-vocabulary), so the values are stated here. Whether a fee was reported or
+modelled is not here. It is `kMsgFlagModelledFill` on the header.
 
 ### Control — every process
 
-#### `HeartbeatMsg` — liveness and identity (48 bytes)
+#### `HeartbeatMsg` — liveness and identity (40 bytes)
+
+`df/msg/control.hpp`, `MsgType::Heartbeat = 61`, on `control`.
 
 ```cpp
 uint8_t  state;          // 32..33   0=boot, 1=ready, 2=trading, 3=halted, 4=error
 uint32_t ref_data_hash;  // 36..40   hash of the reference data this process loaded
-uint64_t beat_ts_ns;     // 40..48
 ```
 
 Three bytes of padding follow `state`.
+
+`state` is one of the five [`ProcessState`](#processstate) values.
 
 Published periodically by every process. L6 declares a process dead after a small number of
 missed beats.
@@ -674,11 +966,12 @@ else believes, and nothing errors. Comparing this hash across the fleet makes th
 loud. Two different values in one running system is a config-skew condition, which closes the
 trading gate exactly as an inconclusive reconciliation does.
 
-#### `KillSwitchMsg` — an authoritative command (48 bytes)
+#### `KillSwitchMsg` — an authoritative command (40 bytes)
+
+`df/msg/control.hpp`, `MsgType::KillSwitch = 62`, on `control`.
 
 ```cpp
-uint8_t  command;       // 32..33   0=halt, 1=cancel all, 2=flatten, 3=resume
-uint64_t issued_ts_ns;  // 40..48
+uint8_t command;  // 32..33   0=halt, 1=cancel all, 2=flatten, 3=resume
 ```
 
 Seven bytes of padding follow `command`.
@@ -686,12 +979,17 @@ Seven bytes of padding follow `command`.
 This is a broadcast **command**, not a state change. Every process receives it and acts only on
 the part it owns, which is why there is no target field. The four commands form a ladder.
 
-| Command    | Effect                                                                                     |
-| ---------- | ------------------------------------------------------------------------------------------ |
-| Halt       | latch the breaker. No new orders are admitted, and live orders and positions are untouched |
-| Cancel all | halt, then cancel every live order at its venue                                            |
-| Flatten    | cancel all, then send orders to bring every position to zero                               |
-| Resume     | clear the latch, if the safety gate allows                                                 |
+| Command    | Executed by                | Effect                                                                                         |
+| ---------- | -------------------------- | ---------------------------------------------------------------------------------------------- |
+| Halt       | L3 (risk)                  | latch the kill switch. No new orders are admitted, and live orders and positions are untouched |
+| Cancel all | L4 (OMS), sent by L5 (EMS) | halt, then cancel every live order at its venue                                                |
+| Flatten    | L4 (OMS), sent by L5 (EMS) | cancel all, then send orders to bring every position to zero                                   |
+| Resume     | L3 (risk)                  | clear the latch, if the trading gate allows                                                    |
+
+L3 owns the flag that admits or refuses orders, so it is the only place a latch can take effect.
+L4 owns the order records, so it knows which orders are live and how much sits at each venue. L5
+owns the venue session, so it is the only component that can put a message on the wire. Neither
+layer could do the other's half.
 
 `Flatten` is the one command that transmits new orders while the system is halted, so it is the
 one control path that can create exposure rather than only reduce it. It requires an explicit
@@ -699,20 +997,21 @@ operator command, with no automatic trigger, and it is the documented exception 
 gate. The gate exists to stop strategies, not to trap the system in a position it must exit.
 
 A command with no named executor silently does nothing, which is the worst property an emergency
-control can have. Which layer executes each command is therefore normative, not implied.
+control can have. The executor column is therefore normative, not implied.
 
 ### Reconciliation — L4 (OMS) and L5 (EMS), reported to L6
 
 Reconciliation answers one question at restart: does the ledger agree with the venue? It is a
 cold, off-path, rate-limited transaction, and it gates trading.
 
-#### `ReconRequestMsg` — begin a pass (56 bytes)
+#### `ReconRequestMsg` — begin a pass (48 bytes)
+
+`df/msg/reconciliation.hpp`, `MsgType::ReconRequest = 71`, on `recon`.
 
 ```cpp
-uint64_t recon_id;         // 32..40   correlates this pass's results and verdicts
-uint32_t venue_id;         // 40..44   0 = every venue this system trades
-uint8_t  trigger;          // 44..45   0=startup, 1=operator
-uint64_t requested_ts_ns;  // 48..56
+uint64_t recon_id;  // 32..40   correlates this pass's results and verdicts
+uint32_t venue_id;  // 40..44   0 = every venue this system trades
+uint8_t  trigger;   // 44..45   0=startup, 1=operator
 ```
 
 Three bytes of padding follow `trigger`.
@@ -724,18 +1023,20 @@ behaviour.
 
 #### `ReconResultMsg` — the venue's claim about one instrument (600 bytes)
 
+`df/msg/reconciliation.hpp`, `MsgType::ReconResult = 72`, on `recon`.
+
 ```cpp
-uint64_t recon_id;                         //  32..40
-uint32_t venue_id;                         //  40..44
-uint32_t instrument_id;                    //  44..48   canonical id
-int64_t  venue_net_qty;                    //  48..56   the venue's position
-int64_t  venue_avg_px;                     //  56..64   the venue's average cost
-uint32_t venue_open_orders;                //  64..68   the venue's total open-order count
-uint32_t venue_fill_count;                 //  68..72   cumulative fills on this instrument
-uint8_t  status;                           //  72..73   0=unknown, 1=ok, 2=rate limited, 3=unavailable
-uint32_t venue_order_count;                //  76..80   ids present below
-std::array<uint64_t, 64> venue_order_ids;  //  80..592  our client_order_ids the venue reports as open
-uint64_t venue_ts_ns;                      // 592..600
+uint64_t                 recon_id;                 //  32..40
+uint32_t                 venue_id;                 //  40..44
+uint32_t                 instrument_id;            //  44..48   canonical id
+int64_t                  venue_net_qty;            //  48..56   the venue's position
+int64_t                  venue_avg_entry;          //  56..64   the venue's average cost
+uint32_t                 venue_open_orders;        //  64..68   the venue's total open-order count
+uint32_t                 venue_fill_count;         //  68..72   cumulative fills on this instrument
+uint8_t                  status;                   //  72..73   0=unknown, 1=ok, 2=rate limited, 3=unavailable
+uint32_t                 venue_order_ids_present;  //  76..80   ids present below
+std::array<uint64_t, 64> venue_order_ids;          //  80..592  our client_order_ids the venue reports as open
+uint64_t                 venue_ts_ns;              // 592..600
 ```
 
 Three bytes of padding follow `status`.
@@ -748,7 +1049,7 @@ L4 (OMS) owns the comparison because L4 owns the state being compared.
 Every field is the venue's own answer, obtained however that venue permits. The contract is
 venue-independent: adding a venue adds no message type, only an adapter that fills this one in.
 
-- `venue_net_qty` and `venue_avg_px` hold the position and the cost basis. The basis is included
+- `venue_net_qty` and `venue_avg_entry` hold the position and the cost basis. The basis is included
 even though a quantity comparison would not need it, because a position can have the right
 quantity and the wrong basis, which is a real P&L fault.
 - `venue_fill_count` shows why a position differs. With only a quantity, "the ledger is short one
@@ -768,17 +1069,18 @@ quantity and the wrong basis, which is a real P&L fault.
   never written, which is a bug or a truncated read. It is distinct from `RateLimited` and
   `VenueUnavailable`, where the venue did answer. Every value except `Ok` keeps the gate closed.
 
-#### `ReconVerdictMsg` — the comparison's outcome (72 bytes)
+#### `ReconVerdictMsg` — the comparison's outcome (64 bytes)
+
+`df/msg/reconciliation.hpp`, `MsgType::ReconVerdict = 73`, on `recon`.
 
 ```cpp
 uint64_t recon_id;        // 32..40
 uint32_t venue_id;        // 40..44
 uint32_t instrument_id;   // 44..48
 int64_t  qty_delta;       // 48..56   local minus venue
-uint32_t order_delta;     // 56..60   local minus venue
+int32_t  order_delta;     // 56..60   local minus venue
 uint8_t  outcome;         // 60..61   0=unknown, 1=matched, 2=mismatch, 3=inconclusive
 uint8_t  mismatch_class;  // 61..62
-uint64_t finalize_ts_ns;  // 64..72
 ```
 
 Two bytes of padding follow `mismatch_class`.
@@ -829,20 +1131,30 @@ transitions rather than accumulations, applying one twice converges, so a replay
 duplicate is harmless. `adjustment_id` is monotonic per producer, so a duplicate or out-of-order
 delivery is detectable.
 
-#### `OrderAbandonedMsg` (64 bytes)
+**An adjustment carries no apply timestamp, and it cannot.** The publish precedes the apply, and the
+bytes are fixed at publish, so such a field could only predict an instant that has not arrived. The
+record's time is `hdr.ts_ns`, the publish itself. A crash between the two leaves the log holding an
+adjustment the ledger has not applied, and replay closes that gap because replay reads the log.
+Applying before publishing would leave the ledger ahead of the log instead, and nothing could close
+that.
+
+#### `OrderAbandonedMsg` (56 bytes)
+
+`df/msg/ledger.hpp`, `MsgType::OrderAbandoned = 81`, on `ledger`.
 
 ```cpp
 uint64_t adjustment_id;    // 32..40   monotonic per producer
 uint64_t client_order_id;  // 40..48   the order being abandoned
 uint32_t instrument_id;    // 48..52
 uint32_t venue_id;         // 52..56   0 if it never reached a venue
-uint64_t applied_ts_ns;    // 56..64
 ```
 
 L4 emits this when the sweep times out, or when reconciliation finds an order the venue does not
 have. It releases the order's reservation.
 
-#### `PositionAdoptedMsg` (72 bytes)
+#### `PositionAdoptedMsg` (64 bytes)
+
+`df/msg/ledger.hpp`, `MsgType::PositionAdopted = 82`, on `ledger`.
 
 ```cpp
 uint64_t adjustment_id;  // 32..40
@@ -850,10 +1162,11 @@ uint64_t recon_id;       // 40..48   the reconciliation pass that caused it
 uint32_t instrument_id;  // 48..52
 uint32_t venue_id;       // 52..56
 int64_t  new_net_qty;    // 56..64   the adopted position
-uint64_t applied_ts_ns;  // 64..72
 ```
 
-#### `BasisAdoptedMsg` (72 bytes)
+#### `BasisAdoptedMsg` (64 bytes)
+
+`df/msg/ledger.hpp`, `MsgType::BasisAdopted = 83`, on `ledger`.
 
 ```cpp
 uint64_t adjustment_id;  // 32..40
@@ -861,7 +1174,6 @@ uint64_t recon_id;       // 40..48
 uint32_t instrument_id;  // 48..52
 uint32_t venue_id;       // 52..56
 int64_t  new_avg_entry;  // 56..64   the adopted cost basis
-uint64_t applied_ts_ns;  // 64..72
 ```
 
 Three messages replace one message with a discriminator so that every field is meaningful in
@@ -874,10 +1186,16 @@ said so.
 
 ## Shared vocabulary
 
-These are the fixed sets of values that messages carry. Each one's underlying type matches the
-width of the field that carries it, so the values can be read directly from the bytes. `VenueId`
-is an id with named values rather than one of these sets, so it is defined under
-[Venue identity](#venue-identity).
+These are the fixed sets of values that messages carry. Each one's underlying type matches the width
+of the field that carries it, so a value can be read straight from the bytes. `VenueId` is an id
+with named values rather than one of these sets, so it is defined under [Venue
+identity](#venue-identity).
+
+Two fields carry one of these sets as a raw integer rather than through the type:
+`TradeMsg.aggressor_side` and `BookDeltaMsg.side`. Their numbers agree with `Side`; their meanings
+do not, so each is defined where it appears.
+
+### Side
 
 ```cpp
 enum class Side : uint8_t
@@ -885,18 +1203,80 @@ enum class Side : uint8_t
     Buy  = 0,
     Sell = 1
 };
+```
+
+| Value | Name   | Meaning                                                                                                          |
+| ----- | ------ | ---------------------------------------------------------------------------------------------------------------- |
+| 0     | `Buy`  | the order adds to the position. A buy limit reserves cash against the order                                      |
+| 1     | `Sell` | the order reduces the position and can take it short. It reserves no cash: the position itself is the collateral |
+
+### OrderType
+
+```cpp
 enum class OrderType : uint8_t
 {
     Limit  = 0,
     Market = 1
 };
+```
+
+| Value | Name     | Meaning                                            |
+| ----- | -------- | -------------------------------------------------- |
+| 0     | `Limit`  | the order carries a price and may rest in the book |
+| 1     | `Market` | the order has no price, so `price` is `0`          |
+
+A market order cannot be checked against a minimum notional and reserves no cash, so the
+order-size cap and, at the next fill, the position limit bound its exposure. Where
+`allow_market_orders` is false it is refused as `RiskRejectReason.MarketOrderNotAllowed`.
+
+### TimeInForce
+
+```cpp
 enum class TimeInForce : uint8_t
 {
-    GTC = 0,
-    IOC = 1,
-    FOK = 2
+    Unknown = 0,
+    GTC     = 1,
+    IOC     = 2,
+    FOK     = 3
 };
+```
 
+| Value | Name      | Meaning                                                                     |
+| ----- | --------- | --------------------------------------------------------------------------- |
+| 0     | `Unknown` | no lifetime was written. The risk engine rejects it                         |
+| 1     | `GTC`     | good till cancelled. The order rests until it fills or is cancelled         |
+| 2     | `IOC`     | immediate or cancel. What fills at once fills, and the rest is cancelled    |
+| 3     | `FOK`     | fill or kill. The order fills in full at once, or the whole order is killed |
+
+`Unknown` is a zeroed or truncated signal, never a real instruction. Zero is reserved because
+whatever value sat there would name the longest-lived instruction: a signal is value-initialized
+before its fields are written, so a zeroed one would arrive asking to rest, and nothing would cancel
+it. The risk engine rejects it as `RiskRejectReason.TimeInForceUnknown`.
+
+**This field decides what the rest of the system has to do about the order**, so it is not only a
+strategy preference.
+
+- **Reservation lifetime.** L4 (OMS) releases a reservation only when a terminal execution report
+  arrives. An order that cannot rest reaches terminal within one round trip, so its reservation is
+  short by construction. A `GTC` order holds its reservation for as long as it rests, which is the
+  failure `layers.md` calls the tightest obligation in the system.
+- **Open-order slot.** The L3 open-order check counts open orders. `IOC` and `FOK` orders barely
+  touch the count; a stream of `GTC` orders accumulates against it.
+- **Whether the order-management messages have a target.** A cancel or a replace needs a live order.
+  An `IOC` order that did not fill is already gone, so neither message has anything to act on.
+- **What reconciliation can see.** `venue_open_orders` is the venue's claim about its resting
+  orders. An order that never rested cannot appear there, so this value decides which mismatches are
+  possible for it.
+- **What a disconnect can orphan.** A dropped session leaves a resting `GTC` order alive at the
+  venue with nobody left to cancel it. `CancelAll` on the kill switch covers that case, and an order
+  that cannot rest cannot be orphaned.
+
+A replace cannot change this value, so a time-in-force change is a cancel plus a new order, and the
+venue holds one order with one lifetime.
+
+### OrderStatus
+
+```cpp
 enum class OrderStatus : uint8_t
 {
     New       = 0,
@@ -905,16 +1285,45 @@ enum class OrderStatus : uint8_t
     Cancelled = 3,
     Rejected  = 4,
 };
+```
 
+| Value | Name        | Meaning                                                                                     | Terminal |
+| ----- | ----------- | ------------------------------------------------------------------------------------------- | -------- |
+| 0     | `New`       | the venue accepted the order and nothing has filled. The order is live                      | no       |
+| 1     | `Partial`   | some quantity filled, and the remainder is still live                                       | no       |
+| 2     | `Filled`    | the order completed                                                                         | yes      |
+| 3     | `Cancelled` | the order is gone from the venue, and the reservation for the unfilled quantity is released | yes      |
+| 4     | `Rejected`  | the venue refused the order, and the reservation is released at once                        | yes      |
+
+An order the ledger has sent but the venue has not answered is pending, not `New`: that value is the
+venue's answer.
+
+### ProcessState
+
+```cpp
 enum class ProcessState : uint8_t
 {
-    Boot    = 0,
-    Ready   = 1,
-    Trading = 2,
-    Halted  = 3,
-    Error   = 4,
+    Boot      = 0,
+    Ready     = 1,
+    Operating = 2,
+    Halted    = 3,
+    Error     = 4,
 };
+```
 
+| Value | Name        | Meaning                                                                |
+| ----- | ----------- | ---------------------------------------------------------------------- |
+| 0     | `Boot`      | the process is starting. Zero is also what value-initialization leaves |
+| 1     | `Ready`     | the process has initialized and is not yet doing its normal work       |
+| 2     | `Operating` | the process is doing its normal work                                   |
+| 3     | `Halted`    | the kill switch is latched, so no new orders are admitted              |
+| 4     | `Error`     | the process has hit a fault                                            |
+
+A heartbeat whose state was never written reads `Boot`, not a healthy state.
+
+### KillCommand
+
+```cpp
 enum class KillCommand : uint8_t
 {
     Halt      = 0,
@@ -924,14 +1333,16 @@ enum class KillCommand : uint8_t
 };
 ```
 
+Each command and its effect are in the ladder table under
+[`KillSwitchMsg`](#killswitchmsg--an-authoritative-command-40-bytes).
+
 ### Reconciliation
 
+All four sets here travel on `recon`.
+
+#### `ReconOutcome`
+
 ```cpp
-// Only Matched opens the trading gate. Unknown, Mismatch, and Inconclusive keep it closed.
-// Reserving zero is defense in depth: reconciliation correlates results and verdicts by
-// recon_id, so a zeroed message is normally discarded before its outcome is read. If that
-// correlation stays airtight, this value is redundant, and it could be dropped. It is kept
-// because it costs one enumerator and it guards the value that opens the trading gate.
 enum class ReconOutcome : uint8_t
 {
     Unknown      = 0,
@@ -939,7 +1350,23 @@ enum class ReconOutcome : uint8_t
     Mismatch     = 2,
     Inconclusive = 3
 };
+```
 
+| Value | Name           | Meaning                                                                             |
+| ----- | -------------- | ----------------------------------------------------------------------------------- |
+| 0     | `Unknown`      | no verdict was produced, because the field was never written. Keeps the gate closed |
+| 1     | `Matched`      | the comparison agreed. **The only value that opens the trading gate**               |
+| 2     | `Mismatch`     | the comparison disagreed, and `mismatch_class` names it. Keeps the gate closed      |
+| 3     | `Inconclusive` | the comparison ran and could not decide. Keeps the gate closed                      |
+
+`Unknown` is a bug or a truncated read, never a real outcome. `Inconclusive` is ordinary: the venue
+was rate-limited, or its claim was truncated. Only `Matched` opens the trading gate, and zero is
+reserved as defense in depth rather than because a zeroed verdict reaches a reader, since results
+and verdicts are correlated by `recon_id` and a zeroed message is usually discarded first.
+
+#### `ReconMismatch`
+
+```cpp
 enum class ReconMismatch : uint8_t
 {
     None              = 0,
@@ -950,9 +1377,21 @@ enum class ReconMismatch : uint8_t
     BasisDelta        = 5,
     FillCountDelta    = 6,
 };
+```
 
-// Unknown is not a venue answer. Zero-initialization must not read as Ok. The reserved zero is
-// the same defense in depth as on ReconOutcome, and it is redundant for the same reason.
+`None` is 0, and zero is reserved rather than used. A `ReconVerdictMsg` is value-initialized before
+its fields are written, so a zeroed buffer or a truncated read leaves `mismatch_class` at 0, and
+reserving zero stops that value from naming a disagreement. `MsgType::None` is 0 for the same
+reason; see [Every message is value-initialized before
+use](#every-message-is-value-initialized-before-use).
+
+The class is worth reading only when `outcome` is `Mismatch`. The meaning, severity, and resolution
+of the six real classes are in the table under
+[`ReconVerdictMsg`](#reconverdictmsg--the-comparisons-outcome-64-bytes).
+
+#### `ReconStatus`
+
+```cpp
 enum class ReconStatus : uint8_t
 {
     Unknown          = 0,
@@ -960,9 +1399,24 @@ enum class ReconStatus : uint8_t
     RateLimited      = 2,
     VenueUnavailable = 3
 };
+```
 
-// Which side started a pass. Affects reporting, not behaviour: both triggers run
-// the same code path.
+| Value | Name               | Meaning                                                                                            |
+| ----- | ------------------ | -------------------------------------------------------------------------------------------------- |
+| 0     | `Unknown`          | the field was never written. A bug or a truncated read, not a venue answer. Keeps the gate closed  |
+| 1     | `Ok`               | the venue answered, and its claim about the instrument is complete                                 |
+| 2     | `RateLimited`      | the venue refused the request because of its own rate limit. It answered, so this is not `Unknown` |
+| 3     | `VenueUnavailable` | the venue could not answer, because its session was down, for example                              |
+
+Every value except `Ok` keeps the gate closed, and zero is reserved for the same reason as in
+`ReconOutcome`: a zeroed field must not read as `Ok`. A truncated venue claim is not a `ReconStatus`
+value:
+the venue reports its total open-order count in `venue_open_orders`, and if fewer order ids follow,
+the claim is incomplete. L4 (OMS) treats that as inconclusive, the same as a rate limit.
+
+#### `ReconTrigger`
+
+```cpp
 enum class ReconTrigger : uint8_t
 {
     Startup  = 0,
@@ -970,12 +1424,12 @@ enum class ReconTrigger : uint8_t
 };
 ```
 
-The six `ReconMismatch` values, their causes, and their resolutions are in the
-`ReconVerdictMsg` section above.
+| Value | Name       | Meaning                                                                       |
+| ----- | ---------- | ----------------------------------------------------------------------------- |
+| 0     | `Startup`  | the pass follows a restart, and runs before the trading gate can open         |
+| 1     | `Operator` | a human asked for the pass, usually to prove a fix after resolving a mismatch |
 
-A truncated venue claim is not a `ReconStatus` value. The venue reports its total open-order count
-in `venue_open_orders`, and if fewer order ids follow, the claim is incomplete. L4 (OMS) treats
-that as inconclusive, the same as a rate limit.
+A pass runs the same code either way. The trigger changes what is reported, not what happens.
 
 ### Venue identity
 
@@ -1010,22 +1464,27 @@ enum class RiskRejectReason : uint16_t
     // RiskRejectMsg can never be read as a real verdict.
     None = 0,
 
-    KillSwitchActive      = 1,  // check 0
-    RateLimitExceeded     = 2,  // check 1
-    InstrumentHalted      = 3,  // check 2: the canonical suspension set
-    MarketOrderNotAllowed = 4,  // check 3
-    OrderSizeTooLarge     = 5,  // check 4
-    PriceCollarViolation  = 6,  // check 5
-    MaxOpenOrdersExceeded = 7,  // check 6
-    PositionLimitExceeded = 8,  // check 7
-    DailyLossExceeded     = 9,  // check 8
+    KillSwitchActive      = 1,   // check 0
+    TimeInForceUnknown    = 2,   // check 1
+    RateLimitExceeded     = 3,   // check 2
+    InstrumentHalted      = 4,   // check 3: the canonical suspension set
+    MarketOrderNotAllowed = 5,   // check 4
+    OrderSizeTooLarge     = 6,   // check 5
+    PriceCollarViolation  = 7,   // check 6
+    MaxOpenOrdersExceeded = 8,   // check 7
+    PositionLimitExceeded = 9,   // check 8
+    DailyLossExceeded     = 10,  // check 9
 };
 ```
 
 The values follow the pipeline order, not the alphabet. A reason code and a pipeline position
 describe the same fact, so they must not drift apart. The code is offset by one from the step
-number because 0 is the sentinel, so `reason = 5` means the order-size check failed, which is step
-4. The checks themselves are in `layers.md`, L3.
+number because 0 is the sentinel, so `reason = 6` means the order-size check failed, which is step
+5. The checks themselves are in `layers.md`, L3.
+
+`TimeInForceUnknown` is the only code that reports a malformed field rather than a limit or a state.
+It is step 1, the cheapest position in the pipeline, so it runs before the rate limiter and a
+malformed signal cannot consume a token a valid signal needs.
 
 `InstrumentHalted` comes from a canonical suspension set, not from a venue listing's `status`.
 L3 (risk) has no venue to look up, so a venue halting one listing is an L5 (EMS) matter that

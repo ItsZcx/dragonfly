@@ -16,8 +16,8 @@
 # findings.
 #
 # tests/p0_smoke.cpp is excluded. It is P0 toolchain scaffolding that reports
-# findings its own purpose makes unavoidable, and operations.md retires it once
-# the phases it pre-verifies have real tests.
+# findings its own purpose makes unavoidable, and phases.md retires it once the
+# phases it pre-verifies have real tests.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

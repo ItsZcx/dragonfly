@@ -1,26 +1,18 @@
 # Layers
 
-**Audience:** anyone implementing or debugging a layer.
+This document describes the six layers. Every layer uses the same subsection order, so the sections can be compared: what it is, what it consumes and produces, how it works, what it must not do, how it fails, and what is core versus added.
 
-This document describes the six layers. Every layer uses the same subsection order, so the
-sections can be compared: what it is, what it consumes and produces, how it works, what it must
-not do, how it fails, and what is core versus added.
+Message layouts are in `contracts.md`. The end-to-end flows are in `lifecycle.md`. The file `overview.md` describes how many processes
+implement the layers.
 
-Message layouts are in `contracts.md`. The end-to-end flows are in `lifecycle.md`. A reminder on
-naming: `L1` to `L6` are roles, not processes. `overview.md` describes how many processes
-implement them.
-
-<details>
-<summary>Contents</summary>
+## Contents
 
 - [L1 (ingestion)](#l1-ingestion)
 - [L2 (strategy)](#l2-strategy)
 - [L3 (risk)](#l3-risk)
-- [L4 (OMS) — the ledger](#l4-oms--the-ledger)
-- [L5 (EMS) — execution](#l5-ems--execution)
+- [L4 (OMS): the ledger](#l4-oms--the-ledger)
+- [L5 (EMS): execution](#l5-ems--execution)
 - [L6 (observability)](#l6-observability)
-
-</details>
 
 ---
 
@@ -37,11 +29,11 @@ It turns venue-specific data into canonical messages and maintains a local order
 
 - **Consumes:** the venue's data feed, which is a socket in production and a historical log in
   backtest. It also consumes `control` for snapshot requests.
-- **Produces:** `TradeMsg`, `QuoteMsg`, `BookDeltaMsg`, and `BookSnapshotMsg` on `md`.
+- **Produces:** `TradeMsg`, `QuoteMsg`, `BookDeltaMsg`, and `BookSnapshotMsg` on `md`, plus the
+  venue's closed candles as bars on the same channel.
 
 L1 has two ports. The outbound port publishes market data. The inbound port receives the resync
-request on `control`. The inbound port is easy to miss, because L1 is the only hot-path process
-that consumes rather than publishes. It exists for one reason: a consumer that detects a gap must
+request on `control`. The inbound port  exists for one reason: a consumer that detects a gap must
 be able to ask L1 for a fresh book.
 
 ### How it works
@@ -106,16 +98,6 @@ gap storm therefore cannot become a snapshot storm.
 
 Almost all of L1's complexity is about failure. The happy path is to parse and publish.
 
-### Core versus added
-
-**Core:** connect, parse, resolve the symbol, timestamp, publish, maintain the local book, and
-the snapshot, delta, sequence, and resync mechanism.
-
-**Added:** the request path and `BookSnapshotRequestMsg`. The text once said a gap "triggers a
-resync" without saying how a consumer's request reached the handler that must answer it. The
-mechanism did not exist, and L1 had no inbound port at all. Both were specification gaps rather
-than design choices.
-
 ---
 
 ## L2 (strategy)
@@ -129,11 +111,14 @@ It turns market observations into trading intentions.
 
 ### Consumes and produces
 
-- **Consumes:** market data on `md`, and risk rejections on `risk_events` for information only.
+- **Consumes:** market data on `md`, its own execution reports on `fills`, and risk rejections on
+  `risk_events` for information only.
 - **Produces:** `AlphaSignalMsg` on `signals`.
 
-L2 does not consume its own fills in the decision loop. A strategy whose correctness depends on
-its own fill status is usually doing risk management, which belongs in L3 (risk) or L4 (OMS).
+L2 reads `fills` for its own orders, and uses them to size the next decision. It never enforces a
+limit with them: enforcement is L3's, and the authoritative position is L4's, so a strategy that
+miscounts what it owns still cannot exceed a cap. At startup L2 replays the log tail to rebuild its
+position before it decides.
 
 ### How it works
 
@@ -159,11 +144,6 @@ it must compare them. It emits one order per leg, and each leg names its destina
 All feed handlers publish on the same `md` channel, and `producer_id` distinguishes them, so no
 per-venue channel naming is needed.
 
-Venue-agnosticism describes the algorithm: no venue name, no exchange format, no tick size in its
-math. It does not claim that all venues are interchangeable. Venues quote genuinely different
-prices for the same asset at the same instant, and that spread is what a cross-venue strategy
-trades.
-
 #### How a strategy is registered and configured
 
 - **A compiled-in factory keyed by a string.** A configuration entry's `impl` field must match a
@@ -171,12 +151,9 @@ trades.
   and loading a shared object allocates and runs arbitrary initializers mid-process, which is
   forbidden on a hot thread and makes "which code produced this log" unanswerable.
 - **Validation happens at startup, and failure is loud.** An `impl` that is not registered is a
-  startup failure, not a warning. Skipping it would produce a deployment that heartbeats, passes
-  reconciliation, and silently trades nothing, which is the hardest failure to diagnose.
+  startup failure, not a warning.
 - **Parameters are validated against the implementation's own schema before construction.** This
-  turns a mistyped parameter from a silently defaulted value into a startup error. A strategy
-  running on defaults produces plausible signals that were never backtested, which is worse than
-  failing.
+  turns a mistyped parameter from a silently defaulted value into a startup error.
 - **`enabled` is separate from `impl`.** `enabled` is a deployment switch that can be flipped
   without removing the entry, and therefore without losing its attribution history. `impl` is a
   build-time binding. A disabled strategy is still validated, so configuration errors surface at
@@ -229,18 +206,6 @@ A strategy has no write-ahead log. That is deliberate. Its state is reconstructi
 market-data stream, so durable storage would add machinery for a case that does not need it. A
 restart is normal traffic.
 
-### Core versus added
-
-**Core:** the strategy interface, the signal message, the read-decide-publish loop, and the
-configuration model.
-
-**Added:** the registration mechanism, because a configuration entry once pointed at nothing and
-no section described how it became an object, and the separate-process decision for Python,
-because earlier text described both a plugin and a separate process, which cannot both be true.
-
-**Explicitly absent:** the alpha. What makes a strategy profitable is not specified anywhere. The
-system provides the machinery, and the strategy provides the idea.
-
 ---
 
 ## L3 (risk)
@@ -267,14 +232,15 @@ Every signal runs the same fixed sequence. **First failure wins, and no check is
 | #   | Check                          | Source of truth                                  | Reason code                 |
 | --- | ------------------------------ | ------------------------------------------------ | --------------------------- |
 | 0   | Kill switch tripped?           | an in-memory latch                               | `KillSwitchActive` (1)      |
-| 1   | Rate limit exceeded?           | a token bucket refilled from the monotonic clock | `RateLimitExceeded` (2)     |
-| 2   | Instrument suspended?          | a canonical suspension set                       | `InstrumentHalted` (3)      |
-| 3   | Market orders permitted here?  | the limit table                                  | `MarketOrderNotAllowed` (4) |
-| 4   | Order size within limit?       | the limit table                                  | `OrderSizeTooLarge` (5)     |
-| 5   | Price within the collar?       | the last quote, through `OnQuote`                | `PriceCollarViolation` (6)  |
-| 6   | Open-order count within limit? | the state mirror                                 | `MaxOpenOrdersExceeded` (7) |
-| 7   | Position within limit?         | the state mirror, by canonical id                | `PositionLimitExceeded` (8) |
-| 8   | Daily loss breached?           | realised plus unrealised P&L, net of fees        | `DailyLossExceeded` (9)     |
+| 1   | Time in force written?         | the signal's `tif` field                         | `TimeInForceUnknown` (2)    |
+| 2   | Rate limit exceeded?           | a token bucket refilled from the monotonic clock | `RateLimitExceeded` (3)     |
+| 3   | Instrument suspended?          | a canonical suspension set                       | `InstrumentHalted` (4)      |
+| 4   | Market orders permitted here?  | the limit table                                  | `MarketOrderNotAllowed` (5) |
+| 5   | Order size within limit?       | the limit table                                  | `OrderSizeTooLarge` (6)     |
+| 6   | Price within the collar?       | the last quote, through `OnQuote`                | `PriceCollarViolation` (7)  |
+| 7   | Open-order count within limit? | the state mirror                                 | `MaxOpenOrdersExceeded` (8) |
+| 8   | Position within limit?         | the state mirror, by canonical id                | `PositionLimitExceeded` (9) |
+| 9   | Daily loss breached?           | realised plus unrealised P&L, net of fees        | `DailyLossExceeded` (10)    |
 
 The reason code is offset by one from the step number, because 0 is reserved as a "no reason"
 sentinel. A zero-initialized rejection can therefore never be read as a real verdict.
@@ -282,22 +248,26 @@ sentinel. A zero-initialized rejection can therefore never be read as a real ver
 **Why this order.** The sequence is a deliberate sort from cheapest and most decisive to most
 expensive and least decisive.
 
-- Check 0 is one flag load. When the breaker is tripped, every later check is wasted work.
-- Checks 1 to 4 read fixed memory, such as a bucket or a limit table, with no dependent loads.
-  They reject the malformed and the abusive before the engine touches its own mutable state.
-- Check 5 depends on market data having arrived. It is placed after size deliberately, so a
+- Check 0 is one flag load. When the kill switch is latched, every later check is wasted work.
+- Check 1 compares one byte against a small set, so it is the cheapest check and runs before
+  anything that costs time or touches state. It runs before the rate limiter in particular,
+  because a malformed signal must not consume a token that a valid signal needs.
+- Checks 2 to 5 read fixed memory, such as a bucket or a limit table, with no dependent loads.
+  They reject the abusive before the engine touches its own mutable state.
+- Check 6 depends on market data having arrived. It is placed after size deliberately, so a
   badly sized order is reported as a size error, which is the caller's own bug, rather than as a
   collar violation, which is the market's condition.
-- Checks 6 to 8 read the state mirror and are the expensive part. The position limit needs a
+- Checks 7 to 9 read the state mirror and are the expensive part. The position limit needs a
   post-trade position, and the daily-loss check needs P&L marked to the last mid.
 
 The ordering is also a **security property**, not only a latency one. Because the state-touching
 checks run last, a flood of malformed signals is rejected by the stateless checks and never
 reaches the expensive ones.
 
-**What the ordering must not depend on.** No check may read a value the sender supplied that has
-not been validated. In particular, the collar compares against the mid recorded from L3's own
-market-data subscription, never against the limit price in the signal under test.
+**What the ordering must not depend on.** No check may use a sender-supplied value as an input to
+a decision before that value has been validated. Reading one to validate it is the exception, and
+check 1 is that exception. In particular, the collar compares against the mid recorded from L3's
+own market-data subscription, never against the price in the signal under test.
 
 #### Canonical-only
 
@@ -336,6 +306,21 @@ Limits come from configuration and live at three tiers: `global`, `per_instrumen
 - The **daily-loss breaker is per-strategy**, because `strategy_id` is the attribution key and two
   strategies sharing an id would merge their P&L into one figure.
 
+Each check reads one key, or none. `config/risk_limits.yaml` holds those keys.
+
+| Check                   | Key                                          | Tiers                            |
+| ----------------------- | -------------------------------------------- | -------------------------------- |
+| kill switch latched     | `kill_switch_active`                         | `global`, and it is a latch      |
+| time in force written   | none                                         | not configurable                 |
+| rate limit              | `max_orders_per_second`                      | `global`, `per_strategy`         |
+| instrument suspended    | the canonical set carried on `control`       | not configuration                |
+| market orders permitted | `allow_market_orders`                        | `per_instrument`                 |
+| order size              | `max_order_qty`                              | `per_instrument`, `per_strategy` |
+| price collar            | `price_collar_bps`                           | `per_instrument`                 |
+| open-order count        | `max_open_orders`                            | `global`, `per_strategy`         |
+| position limit          | `max_position_qty`                           | `per_instrument`, `per_strategy` |
+| daily loss              | `max_daily_loss`                             | `global`, `per_strategy`         |
+
 #### The reconciliation gate
 
 L3 owns a `trading_enabled` flag. After a restart it starts **false**, and every signal is rejected
@@ -362,20 +347,6 @@ rejection path, so there is exactly one stop-trading state.
 | L3 itself down                | nothing is approved. The failure is closed by construction                      |
 | Bad limit configuration       | startup failure                                                                 |
 
-### Core versus added
-
-**Core:** the pipeline, its ordering as a contract, the reason codes, limits as configuration,
-the state mirror, and rejection reporting.
-
-**Added:** the pipeline's explicit ordering and the mapping from each check to a configuration
-tier, both previously unstated. The canonical-only boundary, because L3 previously read
-venue-listing fields, which made it venue-aware and unanswerable in a multi-venue deployment. The
-reconciliation gate. And the daily-loss definition as net of fees.
-
-**Open:** the mechanism by which L4 communicates dynamic position or capital budgets to L3 is not
-designed. The architecture describes L4 computing budgets and L3 enforcing them, but no message
-carries one.
-
 ---
 
 ## L4 (OMS) — the ledger
@@ -392,27 +363,27 @@ It maintains the definitive record of positions, cash, orders, and P&L.
 - **Consumes:** `orders` to open reservations, `fills` to settle, `recon` for the venue's claim
   during reconciliation, and `control` for kill-switch commands.
 - **Produces:** `ReconRequestMsg` and `ReconVerdictMsg` on `recon`, ledger-adjustment messages on
-  `ledger`, and, off-path, snapshots and its journal.
-
-L4 produces nothing on the hot path.
+  `ledger`, and, off-path, snapshots.
 
 ### How it works
 
 #### What it holds
 
-- **Positions**, per canonical instrument: signed net quantity, where positive is long and
-  negative is short, plus average entry price, realised P&L, fees paid, and the last mark price.
-  Positions are keyed by canonical id and never by venue listing, so exposure on any venue counts
-  toward one limit and cannot be evaded by splitting across venues. The average entry price is
-  stored as an **unsigned magnitude**, because direction lives only in the net quantity. Signing
-  both would multiply two negatives in the weighted-average calculation and silently corrupt the
-  basis on every short.
+- **Positions**, as one leg per (venue, instrument): signed net quantity, where positive is long
+  and negative is short, plus average entry price, realised P&L, fees paid, and the last mark
+  price. The canonical position per instrument is the sum of its legs, and it is what risk limits
+  and attribution read, so exposure on any venue counts toward one limit and cannot be evaded by
+  splitting across venues. Each leg's average entry price is stored as an **unsigned magnitude**,
+  because direction lives only in the net quantity. Signing both would multiply two negatives in
+  the weighted-average calculation and silently corrupt the basis on every short.
 - **Cash**, per settlement currency: `settled` and `reserved`. Available is always *derived* as
   `settled − reserved`, never stored, because storing it would create a second place for the same
   fact to become stale.
 - **Order records**, including a state that distinguishes "live at the venue" from "open from our
   point of view". Those differ exactly when a cancel is in flight.
-- **A snapshot and a journal**, its own durable record for recovery.
+- **A snapshot**, its own durable record for recovery. The audit log is the single durable source,
+  so recovery is the snapshot plus the log tail. The ledger keeps no second record, because a
+  second copy of the same facts is a second place for them to go stale.
 
 #### The central rule
 
@@ -511,19 +482,6 @@ the next restart. That is a deliberate trade-off, because continuous reconciliat
 constant venue queries, which are rate-limited and expensive. It does mean the ledger can be
 quietly wrong for a while.
 
-### Core versus added
-
-**Core:** positions, cash, reservations, the event-derived rule, the P&L update rules, `OnFill` as
-the only money-mover, and L4's order state machine.
-
-**Added:** duplicate-fill detection, the pending-cancel and pending-replace semantics because
-cancels once released reservations immediately, the ledger-adjustment messages, the
-widened-arithmetic rule for a genuine overflow bug, and net-of-fees P&L for the breaker.
-
-**Open:** the budget message L4 is said to send L3, described above. The exact shape of the
-per-venue position split needed for flattening, described under L5. And whether ledger adjustments
-need to be replayed or only recorded, which depends on how snapshots and replay interleave.
-
 ---
 
 ## L5 (EMS) — execution
@@ -596,9 +554,10 @@ leave an order the ledger believes is live but which was never transmitted.
 #### Venue routing
 
 Each instance knows its own venue id and ignores orders addressed elsewhere, so any number of
-gateways can subscribe to the same `orders` channel without coordination. An order with a wildcard
-venue id is claimed by whichever gateway receives it. An order naming a venue is acted on only by
-that venue.
+gateways can subscribe to the same `orders` channel without coordination. An order naming a venue is
+acted on only by that venue. An order with a wildcard venue id is claimed by whichever gateway
+receives it, which is unambiguous only while one gateway subscribes. With two, both would claim it,
+and that case is open in `open-questions.md`.
 
 ### What it must not do
 
@@ -619,21 +578,6 @@ that venue.
 | Order does not fit the venue's grid | reject or snap locally, and report as an execution report                                               |
 | Venue rate limit hit                | back off and retry. Never discard. A sustained breach is an operator alert                              |
 | The venue reports an unexpected fee | use the venue's number, which is authoritative                                                          |
-
-### Core versus added
-
-**Core:** the order lifecycle, quantization as the single boundary, one process per venue, and the
-"report every outcome" obligation.
-
-**Added:** the venue id on orders and the routing check, the replace operation in the lifecycle,
-the fee and liquidity flag on the wire because fees were previously absent from the design, the
-distinction between L3's rate limit and the venue's, and the rule that a throttled order is
-retried rather than discarded.
-
-**Open:** how a flatten is addressed when a position is held on more than one venue. Positions are
-canonical, so "bring this position to zero" does not on its own say which venue each order should
-go to. The resolution is for the ledger to retain a per-venue split, described under L4, so that
-L5 receives explicit per-venue legs.
 
 ### The generalizable ideas
 
@@ -683,8 +627,9 @@ on the part it owns. Which layer executes which command is normative, because a 
 named executor silently does nothing, which is the worst property an emergency control can have.
 The commands and their executers are in `contracts.md`.
 
-The reconciliation gate is related but distinct. L6 aggregates reconciliation verdicts and, when a
-pass is fully matched, reopens trading. Anything else keeps it closed.
+The reconciliation gate is related but distinct. L6 displays reconciliation verdicts and can request
+a fresh pass. It never sets the gate. L3 owns the flag and reads the verdicts itself, and it opens
+only when a pass is complete and every verdict matched.
 
 #### Who watches the watcher
 
@@ -709,17 +654,3 @@ supervision and external alerting, closes that gap. L6 does not watch itself.
 | Telemetry process dies                 | L6 goes blind, and trading continues                                                          |
 | Heartbeats missed                      | L6 declares the process dead and alerts, though a missed heartbeat can also mean L6 is broken |
 | Config skew observed across heartbeats | L6 raises it, and the trading gate closes                                                     |
-
-### Core versus added
-
-**Core:** passive observation, the kill switch, and the droppable-by-design property.
-
-**Added:** the config-hash comparison on heartbeats, the reconciliation verdict aggregation and
-the rule that a clean pass reopens automatically while anything else blocks, and the explicit
-kill-command ownership table.
-
-**Removed:** the audit recorder. The log was originally assigned to monitoring, which is exactly
-backwards. The log is durable and the monitor is disposable, so a dashboard restart or a slow
-write would have silently truncated the artifact recovery depends on. Durability got its own
-process, and the monitor stayed disposable. The general rule: do not let the thing you might
-restart own the thing you cannot lose.

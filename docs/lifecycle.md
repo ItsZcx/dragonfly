@@ -1,7 +1,5 @@
 # Lifecycle: three stories
 
-**Audience:** anyone who wants to see how the layers work together, after reading `overview.md`
-and `layers.md`.
 
 This document follows three things through the system: a market tick, an order, and a restart.
 The three stories are the fastest way to check your understanding, because each one crosses every
@@ -67,9 +65,9 @@ over its own request.
    report with `filled_qty=0.2` and `cumulative_qty=0.2`. L4 applies it, deducts cash, adds the
    fee, updates the position, and moves the order to `partially filled`. L4's record now says
    `filled_qty = 0.2`, and the next report's `cumulative_qty` is compared against that.
-4. **A cancel is sent.** Perhaps the strategy's condition changed. L4 sends a `CancelOrderMsg`.
-   L4 does **not** release the reservation yet, because a cancel is a request. The order moves to
-   `pending cancel`.
+4. **A cancel is sent.** Perhaps the strategy's condition changed. The strategy's withdraw request
+   reaches L3, which publishes a `CancelOrderMsg` naming the order. L4 does **not** release the
+   reservation yet, because a cancel is a request. The order moves to `pending cancel`.
 5. **The venue confirms.** It reports "cancelled, 0.2 filled in total". L5 publishes a terminal
    report with `status=cancelled`. L4 marks the order `cancelled` and releases the reservation for
    the unfilled 0.3.
@@ -110,9 +108,11 @@ This story connects the recorder, snapshots, reconciliation, and the trading gat
 7. **It compares.** L4 checks the venue's claim against its own books and publishes a
    `ReconVerdictMsg` per instrument. Each verdict is matched, or a specific class of disagreement.
 8. **The gate decides.** L3 (risk) started with `trading_enabled = false`, so every signal is
-   rejected until the pass completes. If **every instrument matched**, L6 clears the gate and
-   trading resumes automatically. If **anything mismatched or was inconclusive**, the gate stays
-   closed. A human resolves it and then triggers a fresh pass to prove the fix landed.
+   rejected until the pass completes. L3 reads the verdicts itself, and it opens the gate only when
+   the pass is complete and **every instrument matched**. If **anything mismatched or was
+   inconclusive**, the gate stays closed. A human resolves it and then triggers a fresh pass to
+   prove the fix landed. L6 displays the verdicts and can request a pass, and it never sets the
+   gate.
 9. **Trading resumes.** Only now does the next strategy signal get through.
 
 Three ideas hold this story together.

@@ -1,9 +1,5 @@
 // Unit tests for contracts/include/df/msg/market_data.hpp.
 
-// docs/decisions.md, "Layout and trait checks live in the contracts tests, not
-// the headers". The offsets are the wire layout: a wrong value breaks every
-// reader and every logged snapshot.
-
 #include <cstddef>
 #include <df/msg/market_data.hpp>
 #include <type_traits>
@@ -19,7 +15,7 @@ using df::msg::QuoteMsg;
 using df::msg::TradeMsg;
 
 static_assert(sizeof(Level) == 16, "Level is 16 bytes, see docs/contracts.md \"Market data\"");
-static_assert(0 == offsetof(Level, px), "Level.px is at offset 0");
+static_assert(0 == offsetof(Level, price), "Level.price is at offset 0");
 static_assert(8 == offsetof(Level, qty), "Level.qty is at offset 8");
 static_assert(std::is_trivially_copyable_v<Level>,
               "Level must be trivially copyable: the wire path copies it bytewise");
@@ -45,9 +41,9 @@ static_assert(std::is_trivially_default_constructible_v<TradeMsg>,
 static_assert(sizeof(QuoteMsg) == 80, "QuoteMsg is 80 bytes, see docs/contracts.md \"Market data\"");
 static_assert(0 == offsetof(QuoteMsg, hdr), "QuoteMsg.hdr is at offset 0");
 static_assert(32 == offsetof(QuoteMsg, instrument_id), "QuoteMsg.instrument_id is at offset 32");
-static_assert(40 == offsetof(QuoteMsg, bid_px), "QuoteMsg.bid_px is at offset 40");
+static_assert(40 == offsetof(QuoteMsg, bid_price), "QuoteMsg.bid_price is at offset 40");
 static_assert(48 == offsetof(QuoteMsg, bid_qty), "QuoteMsg.bid_qty is at offset 48");
-static_assert(56 == offsetof(QuoteMsg, ask_px), "QuoteMsg.ask_px is at offset 56");
+static_assert(56 == offsetof(QuoteMsg, ask_price), "QuoteMsg.ask_price is at offset 56");
 static_assert(64 == offsetof(QuoteMsg, ask_qty), "QuoteMsg.ask_qty is at offset 64");
 static_assert(72 == offsetof(QuoteMsg, exchange_ts_ns), "QuoteMsg.exchange_ts_ns is at offset 72");
 static_assert(std::is_trivially_copyable_v<QuoteMsg>,
@@ -92,8 +88,7 @@ static_assert(sizeof(BookSnapshotRequestMsg) == 48,
 static_assert(0 == offsetof(BookSnapshotRequestMsg, hdr), "BookSnapshotRequestMsg.hdr is at offset 0");
 static_assert(32 == offsetof(BookSnapshotRequestMsg, instrument_id),
               "BookSnapshotRequestMsg.instrument_id is at offset 32");
-static_assert(40 == offsetof(BookSnapshotRequestMsg, after_seq_num),
-              "BookSnapshotRequestMsg.after_seq_num is at offset 40");
+static_assert(40 == offsetof(BookSnapshotRequestMsg, seq_floor), "BookSnapshotRequestMsg.seq_floor is at offset 40");
 static_assert(std::is_trivially_copyable_v<BookSnapshotRequestMsg>,
               "BookSnapshotRequestMsg must be trivially copyable: the wire path copies it bytewise");
 static_assert(std::is_standard_layout_v<BookSnapshotRequestMsg>,

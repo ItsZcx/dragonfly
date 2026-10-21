@@ -14,15 +14,15 @@ inline constexpr std::size_t kBookDepth = 64;
 
 struct Level
 {
-    std::int64_t px;
+    std::int64_t price;
     std::int64_t qty;
 };
 
 struct TradeMsg
 {
-    df::msg::MsgHeader hdr;
-    std::uint32_t      instrument_id;
-    std::uint8_t       aggressor_side;  // 0 = buyer, 1 = sell
+    MsgHeader     hdr;
+    std::uint32_t instrument_id;
+    std::uint8_t  aggressor_side;  // 0 = buyer, 1 = sell
 
     // 3 bytes of padding
 
@@ -33,29 +33,29 @@ struct TradeMsg
 
 struct QuoteMsg
 {
-    df::msg::MsgHeader hdr;
-    std::uint32_t      instrument_id;
-    std::int64_t       bid_px;
-    std::int64_t       bid_qty;
-    std::int64_t       ask_px;
-    std::int64_t       ask_qty;
-    std::uint64_t      exchange_ts_ns;
+    MsgHeader     hdr;
+    std::uint32_t instrument_id;
+    std::int64_t  bid_price;
+    std::int64_t  bid_qty;
+    std::int64_t  ask_price;
+    std::int64_t  ask_qty;
+    std::uint64_t exchange_ts_ns;
 };
 
 struct BookDeltaMsg
 {
-    df::msg::MsgHeader hdr;
-    std::uint32_t      instrument_id;
-    std::uint8_t       side;    // 0 = bid side, 1 = ask side
-    std::uint8_t       action;  // 0 = add, 1 = modify, 2 = delete
-    std::int64_t       price_level;
-    std::int64_t       qty;
-    std::uint64_t      exchange_ts_ns;
+    MsgHeader     hdr;
+    std::uint32_t instrument_id;
+    std::uint8_t  side;    // 0 = bid side, 1 = ask side
+    std::uint8_t  action;  // 0 = add, 1 = modify, 2 = delete
+    std::int64_t  price_level;
+    std::int64_t  qty;
+    std::uint64_t exchange_ts_ns;
 };
 
 struct BookSnapshotMsg
 {
-    df::msg::MsgHeader            hdr;
+    MsgHeader                     hdr;
     std::uint32_t                 instrument_id;
     std::uint16_t                 bid_levels;  // how many of the kBookDepth value are populated
     std::uint16_t                 ask_levels;
@@ -66,9 +66,9 @@ struct BookSnapshotMsg
 
 struct BookSnapshotRequestMsg
 {
-    df::msg::MsgHeader hdr;
-    std::uint32_t      instrument_id;
-    std::uint64_t      after_seq_num;
+    MsgHeader     hdr;
+    std::uint32_t instrument_id;
+    std::uint64_t seq_floor;
 };
 
 }  // namespace df::msg

@@ -42,8 +42,8 @@ instruments: [1001]
 # handlers take 200 + N from the 200..255 range (contracts.md, "The message header").
 producer_id: 1
 
-# CPU core this process is pinned to (overview.md, "More than six processes"). Must be unique and in
-# the kernel's isolcpus list.
+# CPU core this process is pinned to (overview.md, "Layers are roles, not processes"). Must be
+# unique and in the kernel's isolcpus list.
 core: 2
 
 # Book depth to RETAIN in this handler's local book. Bounds per-instrument memory.

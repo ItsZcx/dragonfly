@@ -1,10 +1,7 @@
 # Operations
 
-**Audience:** anyone building, running, or configuring the system.
-
-This file has three parts. The first is how to build and run. The second is reference material for
-the configuration files. The third is the phase plan, which records the order in which the system
-is built and why.
+This file covers how to build and run the system, and the configuration files it reads. The build
+order is in [`phases.md`](phases.md).
 
 ## Contents
 
@@ -19,8 +16,6 @@ is built and why.
   - [Risk limits: config/risk_limits.yaml](#risk-limits-configrisk_limitsyaml)
   - [Strategies: config/strategies.yaml](#strategies-configstrategiesyaml)
   - [Per-process configuration](#per-process-configuration-configfeeds-and-configgateways)
-- [The phase plan](#the-phase-plan)
-  - [What each phase must prove](#what-each-phase-must-prove)
 
 ---
 
@@ -28,12 +23,13 @@ is built and why.
 
 The build uses Clang, CMake, Ninja, vcpkg in manifest mode, and `pkg-config`.
 
-The presets do not set `CXX`, so a local build uses whatever `c++` resolves to. On macOS that is
-Apple Clang. CI sets `CXX=clang++` so both environments build with Clang.
+The presets do not set `CXX`. `scripts/build.sh` points it at Homebrew `llvm@22` when that is
+installed, and CI installs LLVM 22 and sets `CXX=clang++`. The compiler, the formatter, and the
+linter therefore come from one LLVM release, which is what keeps local and CI output identical.
 
-The two compilers implement the same warning flag differently, so a construct that builds under
-Clang can fail under GCC. `-Wpedantic` reports `__int128` on GCC and not on Clang, and `-Werror`
-makes that fatal. GCC is not a supported compiler here.
+GCC is not a supported compiler. It implements the same warning flags differently, so a construct
+that builds under Clang can fail under GCC: `-Wpedantic` reports `__int128` on GCC and not on
+Clang, and `-Werror` makes that fatal.
 
 `pkg-config` is a prerequisite, not an optional extra: vcpkg's `arm64-osx` triplet runs
 `vcpkg_fixup_pkgconfig` after building a port, and that step invokes the `pkg-config` program.
@@ -137,7 +133,7 @@ The script exits non-zero on any finding, so it works as a check. A clean run pr
 line and `no findings`:
 
 ```
-==> linting 1 translation units (clang-tidy 22.1.8)
+==> linting 12 translation units (clang-tidy 22.1.8)
 ==> no findings
 ```
 
@@ -223,16 +219,16 @@ This file is the rulebook for L3 (risk). The checks and their order are in `laye
 | `per_instrument` | keyed by canonical instrument id |
 | `per_strategy`   | keyed by `strategy_id`           |
 
-| Key                     | Tier                         | Meaning                                                         |
-| ----------------------- | ---------------------------- | --------------------------------------------------------------- |
-| `kill_switch_active`    | global                       | the breaker latch, set at boot and toggled by a control command |
-| `max_orders_per_second` | global, per_strategy         | token-bucket rate limit                                         |
-| `max_daily_loss`        | global, per_strategy         | the daily-loss breaker                                          |
-| `max_open_orders`       | global, per_strategy         | cap on resting orders                                           |
-| `max_order_qty`         | per_instrument, per_strategy | cap on a single order                                           |
-| `max_position_qty`      | per_instrument, per_strategy | cap on absolute net position                                    |
-| `price_collar_bps`      | per_instrument               | how far from the mid an order may be priced                     |
-| `allow_market_orders`   | per_instrument               | whether market orders are permitted                             |
+| Key                     | Tier                         | Meaning                                                             |
+| ----------------------- | ---------------------------- | ------------------------------------------------------------------- |
+| `kill_switch_active`    | global                       | the kill switch latch, set at boot and toggled by a control command |
+| `max_orders_per_second` | global, per_strategy         | token-bucket rate limit                                             |
+| `max_daily_loss`        | global, per_strategy         | the daily-loss breaker                                              |
+| `max_open_orders`       | global, per_strategy         | cap on resting orders                                               |
+| `max_order_qty`         | per_instrument, per_strategy | cap on a single order                                               |
+| `max_position_qty`      | per_instrument, per_strategy | cap on absolute net position                                        |
+| `price_collar_bps`      | per_instrument               | how far from the mid an order may be priced                         |
+| `allow_market_orders`   | per_instrument               | whether market orders are permitted                                 |
 
 Three rules govern how the tiers combine.
 
@@ -302,88 +298,3 @@ The same venue's two files must declare the same `venue_id`, and the process ref
 
 Credentials are never written into these files. A gateway file names the environment variables
 that hold them, and the values are injected at runtime.
-
----
-
-## The phase plan
-
-The system is built in phases. Each phase is proven before the next one starts.
-
-| Phase   | Builds                                          | Proven by                                                                    |
-| ------- | ----------------------------------------------- | ---------------------------------------------------------------------------- |
-| **P0**  | repository skeleton, toolchain, one smoke test  | the build and `ctest` are green                                              |
-| **P1**  | the contract structs and the fixed-point types  | sizes and offsets match, arithmetic is exact                                 |
-| **P2**  | the clock interface, live and simulated         | the simulated clock advances deterministically, the live one is monotonic    |
-| **P3**  | runtime, IPC, sinks, and the audit recorder     | publish and subscribe over a real bus, byte-identical receipt, gap detection |
-| **P4**  | replay, then the live feed handler              | a replayed fixture produces exact normalized messages                        |
-| **P5**  | a minimal monitor                               | replayed market data is visible                                              |
-| **P6**  | L3 (risk) and its state mirror                  | each check produces its exact reason code, and the ordering is observable    |
-| **P7**  | L4 (OMS) and L5 (EMS) against a simulated venue | a synthetic signal runs to a fill, and the ledger is deterministic           |
-| **P8**  | L2 (strategy), then the Python bridge           | a trivial strategy trades end to end on replayed data                        |
-| **P9**  | reconciliation                                  | a deliberate mismatch blocks trading, a clean pass reopens it                |
-| **P10** | recovery, snapshots, and the log                | a killed process restarts and reconstructs identically                       |
-| **P11** | the full monitor                                | the kill switch cancels and blocks new orders end to end                     |
-| **P12** | deployment                                      | latency measured on bare metal, and a one-command rollback                   |
-
-The order is not the layer order, for four reasons.
-
-**Contracts come first.** Every process embeds the message layouts, and the audit log stores them.
-A layout change after P4 invalidates every test and every recorded log, so the data is frozen
-before anything depends on it.
-
-**Replay comes before any live feed.** Replay is deterministic and needs no credentials, so it is
-testable in CI and it forces the live adapter to be a thin second implementation of the same seam.
-
-**Risk comes before strategy.** L3 has the clearest specification and can be tested with synthetic
-signals, with no strategy involved. Building it first means the strategy is written against a
-fixed, proven gate.
-
-**Reconciliation is its own phase, before recovery.** They share only the word "restart". Recovery
-asks "can I rebuild my own state?", which is internal and deterministic. Reconciliation asks "does
-my state agree with the venue's?", which is external and produces a trading gate. Putting the gate
-in place before recovery starts restarting processes means a restart always lands somewhere that
-knows how to refuse to trade.
-
-### What each phase must prove
-
-Some phases are proven by behaviour that does not fit in a table cell. Those obligations are here.
-Each one names the document that states the rule, so the test checks a written contract rather
-than the implementer's memory.
-
-**P3, runtime, IPC, and the recorder**
-
-| #   | Test                                                                                                                                                                                                        | Rule                                                            |
-| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| 1   | The recorder writes a log that replays byte-identically.                                                                                                                                                    | `contracts.md`, "Timestamps"                                    |
-| 2   | A killed recorder leaves a sequence-gap marker in the log rather than a silent hole.                                                                                                                        | `layers.md`, L6                                                 |
-| 3   | Two processes started on different reference-data hashes: the second refuses to enter `trading`, and L6 (observability) raises the skew.                                                                    | `contracts.md`, `HeartbeatMsg`                                  |
-| 4   | Value-initialize each message type twice with identical fields, and assert the bytes are equal.                                                                                                             | `contracts.md`, "Every message is value-initialized before use" |
-| 5   | Kill a producer mid-stream and restart it. The consumer resets that `producer_id`'s watermark when the sequence goes backwards and the timestamp goes forward, and treats a forward sequence jump as a gap. | `contracts.md`, "Sequence numbers across a restart"             |
-| 6   | With a subscriber kept deliberately slow: `md` and `signals` drop and count, `orders` fails closed by latching the kill switch rather than dropping an order, and `control` retries until delivered.        | `contracts.md`, "Publication failure is per-channel"            |
-
-Test 6 needs care, because it asserts a negative: that an order was **not** silently dropped. A
-pass requires observing the latch, not merely the absence of an error.
-
-**P7, order lifecycle and fills**
-
-| #   | Test                                                                                                                                                                                                 | Rule                                 |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| 1   | A pending replace releases nothing while in flight. A rejected amendment reverts the terms with the reservation untouched. A reduce is always admissible, and an increase is checked against budget. | `layers.md`, L4 (OMS)                |
-| 2   | Deliver the same `ExecutionReportMsg` twice. Settled cash, fees, filled quantity, and realised P&L are unchanged, and the duplicate counter increments.                                              | `contracts.md`, `ExecutionReportMsg` |
-
-**P8, strategy registration**
-
-| #   | Test                                                                                                                                                                      | Rule                       |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
-| 1   | An unknown `impl` fails at startup with the available keys listed.                                                                                                        | `layers.md`, L2 (strategy) |
-| 2   | A `params` typo fails schema validation before construction.                                                                                                              | `layers.md`, L2 (strategy) |
-| 3   | A duplicate `strategy_id` is rejected at boot, naming the offending file and id. A `strategy_id` of 65536 or more is rejected too, because it would truncate and collide. | `layers.md`, L2 (strategy) |
-
-**P10, recovery, snapshots, and ledger adjustments**
-
-| #   | Test                                                                                                                                                          | Rule                                 |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| 1   | Kill a process after an abandonment, and restart. The reconstructed ledger holds the released reservation, because the `OrderAbandonedMsg` is in the log.     | `contracts.md`, "Ledger adjustments" |
-| 2   | Kill a process after an adopted reconciliation correction, and restart. The reconstruction matches, rather than reverting to the state before the correction. | `contracts.md`, "Ledger adjustments" |
-| 3   | With the `ledger` publication forced to fail, the live ledger does not apply the adjustment. This proves the publish-before-apply ordering.                   | `contracts.md`, "Ledger adjustments" |
-| 4   | Replaying a log with a duplicated adjustment changes nothing, because the operations are assignments or terminal transitions rather than accumulations.       | `contracts.md`, "Ledger adjustments" |

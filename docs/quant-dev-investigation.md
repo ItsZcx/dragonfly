@@ -1,5 +1,10 @@
 # Quantitative Development Investigation & Architecture Notes
 
+**This is a record of the investigation that came before the design, not a specification.** Where it
+and the documents beside it disagree, those documents win. It is kept because it carries the
+reasoning and the external sources the design was drawn from, and because a decision is easier to
+judge when the alternative that lost is still readable.
+
 <details>
 <summary>Contents</summary>
 
