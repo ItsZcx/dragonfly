@@ -62,7 +62,7 @@ struct StrategyId
 // Returns nullopt when the value would not fit, rather than asserting. The
 // check is enforceable in every build, including the Release preset, so the
 // rule is testable where an assert would have compiled out. The caller should
-// not discard the null: docs/operations.md, "P8, strategy registration" makes
+// not discard the null: docs/phases.md, "P9: L2 (strategy), C++ only" makes
 // naming the offending strategy file the caller's job, which is why the type
 // reports the failure instead of aborting.
 constexpr std::optional<StrategyId> MakeStrategyId(std::uint32_t value)

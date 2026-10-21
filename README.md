@@ -1,6 +1,6 @@
 # Dragonfly
 
-An institutional-grade, market-agnostic, polyglot quantitative trading system.
+An institutional-grade, market-agnostic, quantitative trading system.
 
 Six layers run as separate processes and communicate over a message bus. Each layer owns one stage
 of the path from market data to an executed trade. Money and state cross process boundaries only
@@ -13,12 +13,12 @@ as fixed-size messages.
 | **L3** | Risk          | Approves or rejects each intention                           | C++          |
 | **L4** | OMS           | Records positions, cash, orders, and P&L                     | C++          |
 | **L5** | EMS           | Sends orders to the venue and reports the outcomes           | C++          |
-| **L6** | Observability | Shows what is happening and lets a human stop it             | Python       |
+| **L6** | Observability | Shows what is happening and lets a human stop it             | Python / TBD      |
 
 Throughout these documents a layer is written as `L<n>` with its name in parentheses, such as
 `L3 (risk)` or `L5 (EMS)`.
 
-## Documentation
+ff## Documentation
 
 | Document                                   | Read it for                                                                           |
 | ------------------------------------------ | ------------------------------------------------------------------------------------- |
@@ -27,7 +27,8 @@ Throughout these documents a layer is written as `L<n>` with its name in parenth
 | [`docs/layers.md`](docs/layers.md)         | What each layer does, what it must not do, and how it fails                           |
 | [`docs/lifecycle.md`](docs/lifecycle.md)   | Three worked flows: a tick, an order, and a restart                                   |
 | [`docs/decisions.md`](docs/decisions.md)   | Why the system is built this way, one decision per entry                              |
-| [`docs/operations.md`](docs/operations.md) | Build and run, the configuration files, and the phase plan                            |
+| [`docs/operations.md`](docs/operations.md) | How to build and run, and the configuration files                                     |
+| [`docs/phases.md`](docs/phases.md)         | The build order: sixteen phases, what each delivers, and what each one proves         |
 
 If you read one document, read `docs/overview.md`.
 
@@ -36,13 +37,13 @@ If you read one document, read `docs/overview.md`.
 Phases P0 and P1 are closed. The repository, the toolchain, and the CI gates are in place, and the
 message contracts, the fixed-point arithmetic, and the identifier types are implemented and tested
 against `docs/contracts.md`. The next phase is P2, the clock. The build sequence is in
-`docs/operations.md`, "The phase plan".
+`docs/phases.md`.
 
 ## Toolchain
 
 | Concern      | Choice                           |
 | ------------ | -------------------------------- |
-| C++ compiler | Clang (Apple Clang locally)      |
+| C++ compiler | Clang 22                         |
 | Standard     | C++20                            |
 | Meta-build   | CMake, driven by presets         |
 | Build tool   | Ninja                            |

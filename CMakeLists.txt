@@ -59,7 +59,7 @@ endif()
 
 # ---- Targets ----------------------------------------------------------------
 #
-# P0 ships no trading code. Targets are added per phase in operations.md, "The phase plan".
+# P0 ships no trading code. Targets are added per phase in docs/phases.md.
 #   contracts/  -> df::contracts   (header-only interface target)   [P1]
 #   core/*      -> df::<layer>     (static libraries)                [P2+]
 #   apps/*      -> executables                                       [P4+]

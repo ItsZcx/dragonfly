@@ -305,11 +305,11 @@ TEST(P0Smoke, ReplayRepublishesBytesUnchanged)
            "Producer_Replay would look like a constant restart (contracts.md, Sequence numbers across a restart)";
     EXPECT_EQ(sim_clock_ns, published.hdr.ts_ns) << "after advancing, the clock equals the event's stamp";
 
-    // The other side of the boundary: a message the simulator *creates* (P7's
+    // The other side of the boundary: a message the simulator *creates* (P8's
     // simulated matching-engine fill) was never in the log, so it legitimately
     // stamps its own ts_ns from the sim clock. "Replay preserves stamps,
     // simulation creates them." Modelled here with the structs mirrored at P0;
-    // the real ExecutionReportMsg case belongs to P7.
+    // the real ExecutionReportMsg case belongs to P8.
     ReconVerdictMsg sim_created{};
     sim_created.hdr.msg_type    = 72;
     sim_created.hdr.producer_id = 5;
@@ -387,11 +387,11 @@ TEST(P0Smoke, StrategyRegistrationBindsConfigToCode)
     EXPECT_GE(kMaxOwnerId, 299u) << "the bound must cover every producer_id range in contracts.md";
 }
 
-// ---- Phase acceptance tests live in each phase's section (operations.md, "The phase plan") ----
+// ---- Phase acceptance tests live in each phase's section (docs/phases.md) ----
 
 TEST(P0Smoke, PhaseTableStaysScannable)
 {
-    // operations.md, "The phase plan" has two layers. The table is the summary, read to
+    // docs/phases.md has two layers. The table is the summary, read to
     // answer "what does this phase produce?" at a glance. Each phase then has its own
     // section with the detail, and its proofs answer "what exactly must I observe?".
     //
@@ -874,7 +874,7 @@ TEST(P0Smoke, VenueIdSpaceAllowsNewVenuesWithoutRecompiling)
 
 // NOTE: this cannot be tested at P0, and pretending otherwise would be worse than
 // saying so. The real assertion is a *link-time* property -- "no hot-path binary
-// links libpython" -- which becomes checkable once the binaries exist (P8), where
+// links libpython" -- which becomes checkable once the binaries exist (P9), where
 // it is an assertion about the build, not about a struct. What CAN be fixed now and
 // is easy to get wrong is the part contracts.md, "Sequence numbers across a restart" depends on: a bridged strategy must be a
 // DISTINCT producer_id from the C++ strategy, because if it shared one, a restart of

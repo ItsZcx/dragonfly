@@ -110,7 +110,7 @@ venue_rate_limit:
 # that cannot reconcile, since real fees drift from the published schedule
 # through volume tiers and token discounts.
 #
-# The simulated venue (P7) and replay (P4) have no exchange to ask, so they
+# The simulated venue (P8) and replay (P4) have no exchange to ask, so they
 # fill `fee` from the rates below and mark the message with
 # kMsgFlagModelledFill (contracts.md, the `flags` field) so downstream can tell the two apart.
 #

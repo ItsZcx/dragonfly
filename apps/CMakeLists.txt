@@ -8,9 +8,9 @@
 #
 #   P4  feed_handler     L1: replay-capable feed handler
 #   P4  replay           backtest harness entry point (drives SimulationClock)
-#   P6  risk_engine      L3: risk firewall
-#   P7  oms  ems         L4 ledger, L5 execution (EMS is one process per venue)
-#   P8  strategy_engine  L2: strategy
+#   P7  risk_engine      L3: risk firewall
+#   P8  oms  ems         L4 ledger, L5 execution (EMS is one process per venue)
+#   P9  strategy_engine  L2: strategy
 #
 # Layer 6 (monitoring) has no C++ executable: it lives in python/.
 # Each subdirectory defines its own executable target. Uncomment a line in the
@@ -18,7 +18,7 @@
 
 # add_subdirectory(feed_handler)     # P4
 # add_subdirectory(replay)           # P4
-# add_subdirectory(risk_engine)      # P6
-# add_subdirectory(oms)              # P7
-# add_subdirectory(ems)              # P7
-# add_subdirectory(strategy_engine)  # P8
+# add_subdirectory(risk_engine)      # P7
+# add_subdirectory(oms)              # P8
+# add_subdirectory(ems)              # P8
+# add_subdirectory(strategy_engine)  # P9
