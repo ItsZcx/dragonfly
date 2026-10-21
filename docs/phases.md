@@ -1,15 +1,14 @@
 # Phases
 
-**Audience:** anyone planning the build, reviewing a phase, or asking what a phase delivers
-before it exists.
-
-The system is built in sixteen phases. Each phase is proven before the next one starts. How to
-build and run the system, and the configuration each phase reads, is in
-[`operations.md`](operations.md).
+The system is built in sixteen phases. Each phase is proven before the next one starts.
 
 A phase closes when both of these are true: every issue in its list is closed, and every proof in
-its section passes. Three obligations hold for every phase.
+its section passes. Four obligations hold for every phase.
 
+- **The documents are re-read, not only updated.** A phase updates the passages its change touches,
+  adds what the change made necessary, and hunts for claims the change made false somewhere else.
+  What counts as "somewhere else" depends on the kind of change, and
+  [What a change owes the documents](#what-a-change-owes-the-documents) lists it.
 - **The contract moves with the code.** A phase that changes a layout updates `contracts.md` and the
   layout assertions in the same change. The contract is frozen against unrecorded change, not
   against extension, so a phase that adds a message adds its type code, its struct, its assertions,
@@ -20,28 +19,43 @@ its section passes. Three obligations hold for every phase.
   it uses, what it depends on, what it proves, what it excludes on purpose, and what is still open
   inside it.
 
+## What a change owes the documents
+
+A change of one kind breaks documents of several, and the break is never where the author is
+looking. Before a phase closes, it walks the row for the kind of change it made.
+
+| Change | Re-read |
+| ------ | ------- |
+| A new message | Its code in the table, its documented section, its assertions, its family intro, its producer's output list, the channel row in `overview.md`, and every count of message types |
+| A new enum value or constant | The shared vocabulary, the reserved-zero rule, and the constants table |
+| A new configuration key | The key table in `operations.md` and the header comment of the file it belongs to |
+| A new process | The process list and its count in `overview.md`, the target map in `core/CMakeLists.txt`, and the phase that starts it |
+| A behaviour change | The layer's "How it fails" table, the decision it rests on, and the phase that proves it |
+| A phase insertion or renumber | Every phase number in the plan, and the ones quoted in code, config, and test comments |
+
+Each row exists because the mistake it prevents was made. The drift check that closed the planning
+pass found more than twenty errors, and every one was a claim that a change somewhere else had made
+false: a reason-code count, a check list, three separate sentences about a venue id, a compiler
+paragraph, six phase numbers, and documents citing a superseded source.
+
 ## Contents
 
 - [The phase table](#the-phase-table)
 - [Why this order](#why-this-order)
 - [P0: repository skeleton](#p0-repository-skeleton)
-- [P1: the contract structs and the fixed-point
-  types](#p1-the-contract-structs-and-the-fixed-point-types)
+- [P1: the contract structs and the fixed-point types](#p1-the-contract-structs-and-the-fixed-point-types)
 - [P2: the clock interface](#p2-the-clock-interface)
 - [P3: runtime, transport, and the recorder](#p3-runtime-transport-and-the-recorder)
-- [P4: replay, the live feed handler, and venue
-  bars](#p4-replay-the-live-feed-handler-and-venue-bars)
+- [P4: replay, the live feed handler, and venue bars](#p4-replay-the-live-feed-handler-and-venue-bars)
 - [P5: the research harness](#p5-the-research-harness)
 - [P6: the telemetry process and a minimal monitor](#p6-the-telemetry-process-and-a-minimal-monitor)
 - [P7: L3 (risk) and its state mirror](#p7-l3-risk-and-its-state-mirror)
-- [P8: L4 (OMS) and L5 (EMS) against a simulated
-  venue](#p8-l4-oms-and-l5-ems-against-a-simulated-venue)
+- [P8: L4 (OMS) and L5 (EMS) against a simulated venue](#p8-l4-oms-and-l5-ems-against-a-simulated-venue)
 - [P9: L2 (strategy), C++ only](#p9-l2-strategy-c-only)
 - [P10: the Python bridge](#p10-the-python-bridge)
 - [P11: reconciliation](#p11-reconciliation)
 - [P12: recovery, snapshots, and log retention](#p12-recovery-snapshots-and-log-retention)
-- [P13: the full monitor and the emergency
-  controls](#p13-the-full-monitor-and-the-emergency-controls)
+- [P13: the full monitor and the emergency controls](#p13-the-full-monitor-and-the-emergency-controls)
 - [P14: the live venue adapter](#p14-the-live-venue-adapter)
 - [P15: deployment](#p15-deployment)
 
