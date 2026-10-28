@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.25)
 
 project(dragonfly
     VERSION 0.1.0
-    DESCRIPTION "Institutional-grade, market-agnostic quantitative trading system"
+    DESCRIPTION "High performance, market-agnostic quantitative trading system"
     LANGUAGES CXX)
 
 # ---- Global compile contract (operations.md, "Build and run") -----------------
