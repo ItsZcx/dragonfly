@@ -84,9 +84,9 @@ No preset enables link-time optimization. That is not a decision anyone made: no
 so a reader cannot tell a considered "no" from an omission.
 
 Without it the compiler cannot see one translation unit from another, which is what makes a body in
-a .cpp cost something on a hot path. The clock is the first case: `SimulationClock::AdvanceTo` lives
-in `core/clock/src/clock.cpp` and cannot be inlined into the replay loop it advances. The same will
-hold for L3, L4, and L5.
+a .cpp cost something on a hot path. The clock is the first case: `SimulationClock::ClockAdvanceTo`
+lives in `core/clock/src/clock.cpp` and cannot be inlined into the replay loop it advances. The same
+will hold for L3, L4, and L5.
 
 What it would buy is a few percent on a program with a measured hot path, and nothing measurable
 today, because there is no hot path and the live clock's own cost is a system call. What it costs is
