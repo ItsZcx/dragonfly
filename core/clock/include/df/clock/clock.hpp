@@ -27,4 +27,15 @@ public:
     [[nodiscard]] std::uint64_t NsNow() const override;
 };
 
+class SimulationClock final : public IClock
+{
+public:
+    [[nodiscard]] std::uint64_t NsNow() const override;
+
+    void ClockAdvanceTo(std::uint64_t ts_ns);
+
+private:
+    std::uint64_t now_ns_{};
+};
+
 }  // namespace df::clock
