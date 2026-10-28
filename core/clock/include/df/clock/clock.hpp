@@ -8,6 +8,8 @@ namespace df::clock
 class IClock
 {
 public:
+    IClock() = default;
+
     IClock(const IClock&)            = delete;
     IClock(IClock&&)                 = delete;
     IClock& operator=(const IClock&) = delete;
@@ -17,6 +19,12 @@ public:
 
 protected:
     ~IClock() = default;  // cpp core guideline C.35
+};
+
+class LiveClock final : public IClock
+{
+public:
+    [[nodiscard]] std::uint64_t NsNow() const override;
 };
 
 }  // namespace df::clock
