@@ -8,6 +8,8 @@ namespace df::clock
 class IClock
 {
 public:
+    IClock() = default;
+
     IClock(const IClock&)            = delete;
     IClock(IClock&&)                 = delete;
     IClock& operator=(const IClock&) = delete;
