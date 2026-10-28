@@ -2,4 +2,4 @@
 (advanced by the replay engine). The seam that lets identical code run live and in
 backtest (contracts.md, "Timestamps").
 
-Phase and build order: see the map in `core/CMakeLists.txt`.
+Phase and build order: `docs/phases.md`, P2.
