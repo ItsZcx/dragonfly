@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="https://raw.githubusercontent.com/ItsZcx/dragonfly/master/docs/img/dragonfly-logo-black.svg" alt="Dragonfly" width="200"></a>
+  <img src="https://raw.githubusercontent.com/ItsZcx/dragonfly/master/docs/img/dragonfly-logo-color.svg" alt="Dragonfly" width="200"></a>
   <br>
   Dragonfly
   <br>
@@ -84,6 +84,6 @@ builds the runtime, the transport over Aeron, and the recorder. What each phase 
 
 <div align="center">
 
-[`LICENSE`](LICENSE)
+[`MIT`](LICENSE)
 
 </div>
