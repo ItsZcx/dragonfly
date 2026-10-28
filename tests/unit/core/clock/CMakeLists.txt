@@ -6,7 +6,8 @@
 
 if(DF_HAVE_GTEST)
     add_executable(df_core_clock_tests
-        live_clock_test.cpp)
+        live_clock_test.cpp
+        simulation_clock_test.cpp)
     target_link_libraries(df_core_clock_tests PRIVATE df::clock GTest::gtest_main)
 
     target_compile_options(df_core_clock_tests PRIVATE -Wall -Wextra -Werror -Wpedantic)
