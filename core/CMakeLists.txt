@@ -23,7 +23,7 @@
 # line in the same change that creates the subdirectory's CMakeLists.txt.
 
 add_subdirectory(types)      # P1
-# add_subdirectory(clock)      # P2
+add_subdirectory(clock)      # P2
 # add_subdirectory(runtime)    # P3
 # add_subdirectory(ipc)        # P3
 # add_subdirectory(feed)       # P4
