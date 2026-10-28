@@ -206,7 +206,7 @@ makes Clang and GCC the only supported compilers. The first benchmark was deferr
 ## P2: the clock interface
 
 **Purpose.** Make time injectable, so identical code measures durations identically live and
-in backtest.
+in backtest. Closed, across five issues.
 
 **Builds.**
 
@@ -216,6 +216,10 @@ in backtest.
   cannot move time.
 - The rule the whole system relies on: a component asks the clock for the current time to measure a
   duration, and reads `hdr.ts_ns` for the timestamp on a message. A clock never stamps a message.
+- The library and its tests, in seven files: `core/clock/CMakeLists.txt`,
+  `core/clock/include/df/clock/clock.hpp`, `core/clock/src/clock.cpp`, and in
+  `tests/unit/core/clock/` its `CMakeLists.txt` plus `live_clock_test.cpp`,
+  `simulation_clock_test.cpp`, and `clock_seam_test.cpp`.
 
 **Technologies.** `clock_gettime(CLOCK_MONOTONIC)`, GoogleTest, and no timer thread at this phase.
 
@@ -234,6 +238,9 @@ staleness rule.
 
 **Gaps.** Nothing consumes the clock until P4, so the third proof needs a test consumer. The phase
 is kept before P3 because the seam is easier to hold to when it exists before either implementation.
+The live clock's monotonicity is asserted weakly, by a thousand readings that never decrease: a
+clock that steps backwards cannot be provoked in a test without replacing the syscall, which would
+test the replacement. The test catches a wrong clock id, not a wrong kernel.
 
 ## P3: runtime, transport, and the recorder
 

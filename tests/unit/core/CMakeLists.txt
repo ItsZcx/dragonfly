@@ -6,7 +6,7 @@
 # Add one line per core/ component that has unit tests. The line is added in
 # the same change that creates the component's directory.
 
-# add_subdirectory(clock)      # core/clock      -> df_core_clock_tests
+add_subdirectory(clock)      # core/clock      -> df_core_clock_tests
 # add_subdirectory(ems)        # core/ems        -> df_core_ems_tests
 # add_subdirectory(feed)       # core/feed       -> df_core_feed_tests
 # add_subdirectory(ipc)        # core/ipc        -> df_core_ipc_tests
