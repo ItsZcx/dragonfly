@@ -91,6 +91,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The status card is drawn from docs/phases.md. Two copies of one fact
+      # drift, so regenerate it and compare instead of trusting the file.
+      - name: Check status card
+        run: python3 scripts/status.py --check
+
       - name: Install LLVM ${{ env.LLVM_VERSION }}
         run: |
           wget -qO llvm.sh https://apt.llvm.org/llvm.sh
