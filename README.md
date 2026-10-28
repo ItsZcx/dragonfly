@@ -1,5 +1,4 @@
 <h1 align="center">
-  <br>
   <img src="https://raw.githubusercontent.com/ItsZcx/dragonfly/master/docs/img/dragonfly-logo-black.svg" alt="Dragonfly" width="200"></a>
   <br>
   Dragonfly
