@@ -262,8 +262,8 @@ core, log without blocking, publish and subscribe over the bus, and write the bu
 - `IControlConsumer` as the single inbound contract for `control`, and the executor table in
   `contracts.md` starts here with the liveness side.
 
-**Technologies.** Aeron 1.52.2 from vcpkg, including `aeronmd`, which runs as its own supervised
-process on its own core with the `archive` feature off. Quill for logging. yaml-cpp with
+**Technologies.** Aeron (1.52.2) from vcpkg, including `aeronmd`, which runs as its own supervised
+process on its own core with the `archive` feature off. Quill (13.0.0) for logging. yaml-cpp (0.9.0) with
 hand-written validation. `pthread_setaffinity_np`. POSIX signals. A file format for the log, decided
 at this phase.
 

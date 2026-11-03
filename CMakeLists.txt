@@ -5,7 +5,7 @@ project(dragonfly
     DESCRIPTION "High performance, market-agnostic quantitative trading system"
     LANGUAGES CXX)
 
-# ---- Global compile contract (operations.md, "Build and run") -----------------
+# ---- Global compile contract ------------------------------------------------
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -20,14 +20,7 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 # ---- Dependencies (vcpkg manifest mode) -------------------------------------
-#
-# Resolved through the vcpkg toolchain, which the presets in CMakePresets.json
-# point at <repo>/.vcpkg. Run scripts/bootstrap.sh first. Missing dependencies
-# are reported at the point a target needs them, so a fresh clone can still
-# configure and inspect the tree.
 
-# Platform threading. Required, and not optional: every layer runs a pinned
-# event loop. Defines Threads::Threads, which adds -pthread.
 find_package(Threads REQUIRED)
 
 set(DF_HAVE_GTEST FALSE)
@@ -58,11 +51,6 @@ if(NOT DF_HAVE_GTEST OR NOT DF_HAVE_BENCHMARK)
 endif()
 
 # ---- Targets ----------------------------------------------------------------
-#
-# P0 ships no trading code. Targets are added per phase in docs/phases.md.
-#   contracts/  -> df::contracts   (header-only interface target)   [P1]
-#   core/*      -> df::<layer>     (static libraries)                [P2+]
-#   apps/*      -> executables                                       [P4+]
 
 add_subdirectory(contracts)
 add_subdirectory(core)
